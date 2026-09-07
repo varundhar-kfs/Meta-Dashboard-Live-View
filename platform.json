@@ -1,0 +1,13 @@
+{
+  "name": "meta-credit-tower",
+  "type": "fullstack",
+  "frontend": { "build": "npm run build", "output": "dist" },
+  "api": { "entry": "api/index.ts", "runtime": "nodejs20" },
+  "tables": [
+    { "name": "brands",    "key": "pk", "sortKey": "sk" },
+    { "name": "exposure",  "key": "pk", "sortKey": "sk" },
+    { "name": "topups",    "key": "pk", "sortKey": "sk" },
+    { "name": "findings",  "key": "pk", "sortKey": "sk" }
+  ],
+  "access": []
+}
