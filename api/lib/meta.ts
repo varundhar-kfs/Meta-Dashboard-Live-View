@@ -12,11 +12,29 @@ export interface Cfg {
 }
 
 export function cfg(): Cfg {
-  const token = process.env.META_ACCESS_TOKEN;
-  const businessId = process.env.META_BUSINESS_ID;
-  if (!token) throw new Error('META_ACCESS_TOKEN is not set — add it in Dashboard → Secrets');
-  if (!businessId) throw new Error('META_BUSINESS_ID is not set — add it in Dashboard → Secrets');
-  return { token, businessId, version: process.env.META_API_VERSION || 'v23.0' };
+  const rawToken = process.env.META_ACCESS_TOKEN;
+  const rawBiz = process.env.META_BUSINESS_ID;
+  if (!rawToken) throw new Error('META_ACCESS_TOKEN is not set — add it in Dashboard → Secrets');
+  if (!rawBiz) throw new Error('META_BUSINESS_ID is not set — add it in Dashboard → Secrets');
+
+  // Secrets cannot be read back once saved, so a stray character is invisible and
+  // surfaces as a baffling "object does not exist" from Meta. Clean them here.
+  // A business id copied out of a Business Manager URL arrives as "1234&asset_id=..".
+  const token = rawToken.trim();
+  const businessId = rawBiz.trim().replace(/^act_/, '').replace(/[^0-9].*$/, '');
+  if (!businessId) {
+    throw new Error(
+      `META_BUSINESS_ID contains no digits. It should be the numeric business id on its own, ` +
+        `e.g. 109096697732006 — not a URL fragment.`,
+    );
+  }
+  if (businessId !== rawBiz.trim()) {
+    console.warn(
+      `META_BUSINESS_ID was cleaned: ${rawBiz.trim().length} chars in, using "${businessId}". ` +
+        'Fix the secret to silence this.',
+    );
+  }
+  return { token, businessId, version: (process.env.META_API_VERSION || 'v23.0').trim() };
 }
 
 async function get<T>(c: Cfg, path: string, params: Record<string, string> = {}): Promise<T> {
