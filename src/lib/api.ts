@@ -2,57 +2,63 @@ import { createApiClient } from '../../api/platform-sdk';
 
 export const api = createApiClient();
 
-export interface Brand {
-  brandId: string;
-  name?: string;
-  tier?: 'prepaid' | 'pg-daily' | 'short' | 'long' | 'unclassified';
-  feeRate?: number;
-  utilisationDays?: number;
-  creditDays?: number;
-  annualSpend?: number;
-  outstanding?: number;
-  allocation?: number;
-  utilisationPct?: number;
+export interface CreditLine {
+  id: string; name: string | null; currency: string | null;
+  limit: number | null; spent: number | null; available: number | null;
+  allocatedOut: number | null; creditType: string | null;
+  accessRevoked: boolean; liableBusiness: string | null;
 }
 
-export interface Portfolio {
-  brands: number;
-  annualSpend: number;
-  annualRevenue: number;
-  peakExposure: number;
-  exposureOverRevenue: number | null;
-  breakevenAnnualDefaultRate: number | null;
-  tiers: Record<string, { brands: number; spend: number }>;
+export interface Allocation {
+  id: string; creditLineId: string; merchant: string; merchantBusinessId: string | null;
+  currency: string | null; allocated: number | null;
+  liabilityType: string | null; partitionType: string | null; status: string | null;
+  used: number | null; available: number | null;
+  utilisation: number | null; utilisationNote: string | null;
+}
+
+export interface AdAccount {
+  id: string; name: string | null; business: string | null; currency: string | null;
+  status: number | null; spent: number | null; spendCap: number | null;
+  walletRemaining: number | null; prepay: boolean;
+}
+
+export interface Overview {
   asOf: string;
+  apiVersion: string;
+  currency: string | null;
+  facility: { limit: number; spent: number; available: number; allocatedOut: number };
+  lines: CreditLine[];
+  allocations: Allocation[];
+  accounts: AdAccount[];
+  coverage: {
+    allocations: number; withUtilisation: number;
+    utilisationReadable: boolean; adAccounts: number;
+  };
 }
 
-export type TopupState =
-  | 'PAID_UNVERIFIED' | 'VERIFIED' | 'LOADING' | 'LOADED' | 'FAILED' | 'MANUAL_REVIEW';
-
-export interface Topup {
-  topupId: string;
-  brandId: string | null;
-  adAccountId: string | null;
-  paid: number;
-  feeRate: number | null;
-  spendToLoad: number | null;
-  fee: number | null;
-  state: TopupState;
-  notes?: string[];
-  ref: string;
-  createdAt: string;
-  capBefore?: number;
-  capAfter?: number;
-  lastError?: string;
+/** Indian money, chosen scale. Lakh/crore because that is how the book is discussed. */
+export function money(n: number | null | undefined, currency: string | null = 'INR'): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const sym = currency === 'USD' ? '$' : currency === 'INR' || !currency ? '₹' : `${currency} `;
+  const a = Math.abs(n);
+  if (sym === '₹') {
+    if (a >= 1e7) return `${sym}${(n / 1e7).toFixed(2)} Cr`;
+    if (a >= 1e5) return `${sym}${(n / 1e5).toFixed(2)} L`;
+  } else if (a >= 1e6) return `${sym}${(n / 1e6).toFixed(2)}M`;
+  return `${sym}${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
-export const inr = (n: number | null | undefined, dp = 0): string =>
+export const exact = (n: number | null | undefined, currency: string | null = 'INR'): string =>
   n == null || !Number.isFinite(n)
     ? '—'
-    : `₹${n.toLocaleString('en-IN', { maximumFractionDigits: dp })}`;
+    : `${currency === 'USD' ? '$' : '₹'}${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-export const cr = (n: number | null | undefined): string =>
-  n == null || !Number.isFinite(n) ? '—' : `₹${(n / 1e7).toFixed(2)} Cr`;
-
-export const pct = (n: number | null | undefined, dp = 1): string =>
+export const pct = (n: number | null | undefined, dp = 0): string =>
   n == null || !Number.isFinite(n) ? '—' : `${(n * 100).toFixed(dp)}%`;
+
+/** Meta's numeric account_status, as words. */
+export const ACCOUNT_STATUS: Record<number, string> = {
+  1: 'active', 2: 'disabled', 3: 'unsettled', 7: 'pending review',
+  8: 'pending closure', 9: 'in grace period', 100: 'closed', 101: 'any active', 201: 'any closed',
+};

@@ -1,49 +1,276 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { Gauge, Wallet } from 'lucide-react';
-import Portfolio from './pages/Portfolio';
-import Topups from './pages/Topups';
-
-const tabs = [
-  { to: '/portfolio', label: 'Portfolio', icon: Gauge },
-  { to: '/topups', label: 'Top-ups', icon: Wallet },
-];
+import { useQuery } from '@tanstack/react-query';
+import { AlertCircle, Info, Loader2, RefreshCw } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ACCOUNT_STATUS, api, exact, money, pct, type Overview } from './lib/api';
+import Bar from './components/Bar';
 
 export default function App() {
+  const q = useQuery<Overview>({
+    queryKey: ['overview'],
+    queryFn: () => api.get('/api/overview'),
+  });
+
+  const refresh = async () => {
+    await api.get('/api/overview?refresh=1');
+    await q.refetch();
+  };
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
-          <h1 className="text-lg font-semibold tracking-tight">Meta Credit Tower</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Utilisation, exposure and wallet top-ups across the ads credit programme
-          </p>
-          <nav className="mt-4 flex gap-1">
-            {tabs.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                    isActive
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`
-                }
-              >
-                <Icon size={15} />
-                {label}
-              </NavLink>
-            ))}
-          </nav>
+        <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">Meta Credit Tower</h1>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Live credit line, per-merchant allocation and ad-account spend, read straight from Meta
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {q.data && (
+              <span className="tnum text-xs text-slate-400">
+                as of {new Date(q.data.asOf).toLocaleTimeString('en-IN')} · {q.data.apiVersion}
+              </span>
+            )}
+            <button
+              onClick={refresh}
+              disabled={q.isFetching}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+            >
+              {q.isFetching ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              Refresh
+            </button>
+          </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-        <Routes>
-          <Route path="/" element={<Navigate to="/portfolio" replace />} />
-          <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/topups" element={<Topups />} />
-        </Routes>
+
+      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6">
+        {q.isLoading && <Skeleton />}
+        {q.error && <Failure error={q.error as Error} />}
+        {q.data && <Dashboard d={q.data} />}
       </main>
+    </div>
+  );
+}
+
+function Dashboard({ d }: { d: Overview }) {
+  const cy = d.currency;
+  const drawn = d.facility.limit > 0 ? d.facility.spent / d.facility.limit : null;
+  const allocs = [...d.allocations].sort(
+    (a, b) => (b.utilisation ?? -1) - (a.utilisation ?? -1) || (b.allocated ?? 0) - (a.allocated ?? 0),
+  );
+
+  return (
+    <>
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card label="Facility limit" value={money(d.facility.limit, cy)} note={`${d.lines.length} credit line(s)`} />
+        <Card label="Drawn" value={money(d.facility.spent, cy)} note={drawn != null ? `${pct(drawn)} of limit` : undefined} tone="warn" />
+        <Card label="Available" value={money(d.facility.available, cy)} note="undrawn headroom" tone="good" />
+        <Card label="Allocated out" value={money(d.facility.allocatedOut, cy)} note={`${d.coverage.allocations} merchant allocation(s)`} />
+      </section>
+
+      {!d.coverage.utilisationReadable && d.coverage.allocations > 0 && (
+        <Notice>
+          Meta is returning allocation amounts but <strong>not per-merchant utilisation</strong> —
+          the child credit line behind each allocation did not expose a usable balance. Allocated
+          amounts below are live; the utilisation column is empty for that reason, not because
+          nothing has been spent. Per-merchant spend would then have to come from ad-account data,
+          which needs each merchant to grant access.
+        </Notice>
+      )}
+
+      <Panel
+        title="Merchant allocations"
+        subtitle={
+          d.coverage.utilisationReadable
+            ? `${d.coverage.withUtilisation} of ${d.coverage.allocations} allocations report utilisation. Highest first — these are closest to being paused.`
+            : `${d.coverage.allocations} allocations. Utilisation not exposed by Meta for these.`
+        }
+      >
+        {allocs.length === 0 ? (
+          <Empty text="No allocations returned for this credit line." />
+        ) : (
+          <Table
+            head={['Merchant', 'Allocated', 'Used', 'Available', 'Liability', 'Status', 'Utilisation']}
+            align={['left', 'right', 'right', 'right', 'left', 'left', 'right']}
+          >
+            {allocs.map((a) => (
+              <tr key={a.id} className="border-b border-slate-100 last:border-0">
+                <td className="px-4 py-2">
+                  <div className="font-medium">{a.merchant}</div>
+                  {a.merchantBusinessId && (
+                    <div className="font-mono text-[10px] text-slate-400">{a.merchantBusinessId}</div>
+                  )}
+                </td>
+                <td className="tnum px-4 py-2 text-right">{exact(a.allocated, a.currency)}</td>
+                <td className="tnum px-4 py-2 text-right">{exact(a.used, a.currency)}</td>
+                <td className="tnum px-4 py-2 text-right">{exact(a.available, a.currency)}</td>
+                <td className="px-4 py-2">
+                  <Pill text={a.liabilityType ?? '—'} tone={a.liabilityType === 'Normal' ? 'warn' : 'neutral'} />
+                </td>
+                <td className="px-4 py-2 text-xs text-slate-500">{a.status ?? '—'}</td>
+                <td className="px-4 py-2 text-right">
+                  {a.utilisation != null ? <Bar value={a.utilisation} /> : <Missing note={a.utilisationNote} />}
+                </td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Panel>
+
+      <Panel
+        title="Ad accounts"
+        subtitle={
+          d.accounts.length
+            ? `${d.accounts.length} account(s) visible to us. Wallet = spend cap − amount spent, and is blank where no cap is set.`
+            : 'None visible. Ad-account spend needs each merchant to grant a role on their account.'
+        }
+      >
+        {d.accounts.length === 0 ? (
+          <Empty text="No ad accounts reachable from this business." />
+        ) : (
+          <Table
+            head={['Account', 'Business', 'Status', 'Spent', 'Spend cap', 'Wallet left']}
+            align={['left', 'left', 'left', 'right', 'right', 'right']}
+          >
+            {d.accounts.map((x) => (
+              <tr key={x.id} className="border-b border-slate-100 last:border-0">
+                <td className="px-4 py-2">
+                  <div className="font-medium">{x.name ?? x.id}</div>
+                  <div className="font-mono text-[10px] text-slate-400">{x.id}</div>
+                </td>
+                <td className="px-4 py-2 text-xs text-slate-600">{x.business ?? '—'}</td>
+                <td className="px-4 py-2">
+                  <Pill
+                    text={x.status != null ? (ACCOUNT_STATUS[x.status] ?? String(x.status)) : '—'}
+                    tone={x.status === 1 ? 'good' : x.status == null ? 'neutral' : 'warn'}
+                  />
+                </td>
+                <td className="tnum px-4 py-2 text-right">{exact(x.spent, x.currency)}</td>
+                <td className="tnum px-4 py-2 text-right text-slate-600">
+                  {x.spendCap != null ? exact(x.spendCap, x.currency) : <span className="text-slate-300">not set</span>}
+                </td>
+                <td className="tnum px-4 py-2 text-right font-medium">{exact(x.walletRemaining, x.currency)}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Panel>
+
+      <p className="text-xs text-slate-400">
+        Read-only. Cached for 60 seconds — Refresh forces a fresh pull from Meta.
+      </p>
+    </>
+  );
+}
+
+/* ---------- small pieces ---------- */
+
+function Card({ label, value, note, tone = 'neutral' }: {
+  label: string; value: string; note?: string; tone?: 'neutral' | 'good' | 'warn';
+}) {
+  const c = { neutral: 'text-slate-900', good: 'text-emerald-700', warn: 'text-amber-700' }[tone];
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400">{label}</p>
+      <p className={`tnum mt-2 text-2xl font-semibold tracking-tight ${c}`}>{value}</p>
+      {note && <p className="mt-1 text-xs text-slate-500">{note}</p>}
+    </div>
+  );
+}
+
+function Panel({ title, subtitle, children }: {
+  title: string; subtitle?: string; children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 px-4 py-3">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {subtitle && <p className="mt-0.5 text-xs leading-snug text-slate-500">{subtitle}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Table({ head, align, children }: {
+  head: string[]; align: Array<'left' | 'right'>; children: ReactNode;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 font-mono text-[10px] uppercase tracking-wider text-slate-400">
+            {head.map((h, i) => (
+              <th key={h} className={`px-4 py-2 font-medium ${align[i] === 'right' ? 'text-right' : 'text-left'}`}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+const Pill = ({ text, tone }: { text: string; tone: 'neutral' | 'good' | 'warn' }) => (
+  <span
+    className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+      { neutral: 'bg-slate-100 text-slate-600', good: 'bg-emerald-100 text-emerald-800', warn: 'bg-amber-100 text-amber-800' }[tone]
+    }`}
+  >
+    {text}
+  </span>
+);
+
+const Missing = ({ note }: { note: string | null }) => (
+  <span className="text-xs text-slate-400" title={note ?? undefined}>
+    not exposed
+  </span>
+);
+
+const Empty = ({ text }: { text: string }) => (
+  <p className="px-4 py-8 text-center text-sm text-slate-500">{text}</p>
+);
+
+const Notice = ({ children }: { children: ReactNode }) => (
+  <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900">
+    <Info size={16} className="mt-0.5 shrink-0" />
+    <p>{children}</p>
+  </div>
+);
+
+const Skeleton = () => (
+  <div className="space-y-6">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="h-24 animate-pulse rounded-lg border border-slate-200 bg-white" />
+      ))}
+    </div>
+    <div className="h-64 animate-pulse rounded-lg border border-slate-200 bg-white" />
+  </div>
+);
+
+function Failure({ error }: { error: Error }) {
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+      <div className="flex items-start gap-2.5">
+        <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+        <div className="text-sm">
+          <p className="font-semibold text-red-900">Could not read from Meta</p>
+          <p className="mt-1 text-red-800">{error.message}</p>
+          <p className="mt-2 text-xs text-red-700">
+            Check <code className="rounded bg-red-100 px-1">META_ACCESS_TOKEN</code> and{' '}
+            <code className="rounded bg-red-100 px-1">META_BUSINESS_ID</code> in Dashboard → Secrets,
+            then Refresh. <code className="rounded bg-red-100 px-1">/api/health</code> reports
+            whether both are set.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

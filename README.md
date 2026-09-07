@@ -1,108 +1,103 @@
-# meta-credit-tower — deployer console
+# Meta Credit Tower
 
-The GoKwik-platform half of the Meta ads credit programme: the operations console,
-and the payment-gateway webhook that turns a verified recharge into a wallet top-up.
+A read-only dashboard for GoKwik's Meta ads credit programme. Shows the facility, what
+each merchant has been allocated, how much of it they've used, and per-ad-account spend
+and wallet — pulled live from Meta each time you load it.
 
-Built against the platform contract at `/gokwik/deployer/platform-claude.md`
-(read 7 Sep 2026). Only allowed dependencies; no blocked packages; no auth code.
+**Read-only by design.** There is no write path anywhere in this codebase: no top-ups,
+no `spend_cap` changes, no gateway integration. Every Meta call is a `GET`.
 
-## What runs where
+Built for GoKwik's internal app platform. No database, no external services.
 
-| This app (deployer) | The ingestion service (K8s + Postgres) |
-| --- | --- |
-| Portfolio and utilisation console | Meta credit-graph, invoice and spend ingestion |
-| Top-up queue with the human verification step | The ledger and three-way reconciliation |
-| `spend_cap` write — one Meta call, well inside limits | Anything over 120s or needing relational queries |
-| Easebuzz webhook receiver | |
+---
 
-`pg` is a blocked package and DynamoDB items cap at 400KB, so daily per-ad-account
-spend cannot live here. This app reads snapshots the ingestion service writes.
+## What you need
+
+Three values, added in **Dashboard → Secrets** after the first deploy:
+
+| Secret | Required | What it is |
+| --- | --- | --- |
+| `META_ACCESS_TOKEN` | yes | System user token from GoKwik's Business Manager. Needs **`business_management`** and **`ads_read`**. Read scopes only — the app never writes |
+| `META_BUSINESS_ID` | yes | The business that **owns** the credit line, not a merchant's. Likely `109096697732006` — confirm in Business Manager |
+| `META_API_VERSION` | no | Defaults to `v23.0`. Confirm the current version on developers.facebook.com |
+
+Secrets are runtime-only and backend-only. **Never** give any of these a `VITE_`
+prefix — that would ship the token in the frontend bundle.
+
+### Getting the token
+
+1. Business Manager → **Business settings** → **Users → System users**
+2. Add a system user (or use an existing one) with **Admin** access to the business
+3. **Generate new token** → pick your app → tick `business_management` and `ads_read`
+4. Copy it straight into Dashboard → Secrets. Don't paste it into chat, a ticket, or a commit
 
 ## Deploy
 
 ```bash
 npm install
-npm run build && npm run build:api    # must both pass before uploading
+npm run build          # must pass
+npm run build:api      # must pass — emits dist-api/handler.mjs
 ```
 
-Then upload to the platform dashboard. Afterwards, in **Dashboard → Secrets**:
+Upload to the platform dashboard, then add the secrets above and reload the page.
 
-| Secret | Why |
-| --- | --- |
-| `META_ACCESS_TOKEN` | System user token. Needs `ads_management` for the `spend_cap` write |
-| `META_API_VERSION` | Optional, defaults to `v23.0`. Confirm the current version |
-| `EASEBUZZ_MERCHANT_KEY` | Webhook signature verification |
-| `EASEBUZZ_SALT` | Webhook signature verification |
-| `ACCOUNTS_NOTIFY_EMAIL` | Optional. A `@gokwik.co` address for verification alerts |
+`/api/health` reports whether the token and business id are configured, without
+revealing either.
 
-Secrets are runtime-only and backend-only. Never use a `VITE_` prefix for any of
-these — that ships them in the frontend bundle.
+## What it shows
 
-## The webhook
+**Facility** — limit, drawn, available, and total allocated out across your credit lines.
 
-```
-https://deployer.dev.gokwik.in/_api/app/meta-credit-tower/api/webhook/easebuzz/payment
-```
+**Merchant allocations** — one row per allocation: the merchant, what they were
+allocated, used and available, liability type, and utilisation as a bar (amber past
+70%, red past 85% — the pause-risk zone). Sorted by utilisation, so the accounts
+closest to being paused are at the top.
 
-Routes under `/api/webhook/` bypass platform SSO by design, so this handler is the only
-thing between the open internet and a credit extension. It therefore:
+**Ad accounts** — every account visible to your business: amount spent, spend cap, and
+wallet remaining (`spend_cap − amount_spent`), blank where no cap is set.
 
-- **verifies the SHA-512 reverse hash** and rejects on mismatch, timing-safely
-- **fails closed** with a 503 if `EASEBUZZ_MERCHANT_KEY`/`EASEBUZZ_SALT` are unset
-- **is idempotent** on the gateway reference, so a replayed callback cannot double-credit
-- **never calls Meta inline** — it enqueues a job, so a slow Meta call can't hold it open
-- **never auto-loads** — a payment lands in `PAID_UNVERIFIED` and waits for Accounts
+## One thing to expect on first run
 
-> ⚠️ **Confirm the hash field order against Easebuzz's current docs before going live.**
-> `api/routes/webhook-easebuzz.ts` uses the PayU-family convention
-> (`salt|status|udf5..udf1|email|firstname|productinfo|amount|txnid|key`). A wrong order
-> fails closed — every request rejected — which is the safe direction, but it looks like
-> an outage.
+Meta reliably exposes **allocation amounts**. Whether it exposes **per-merchant
+utilisation** depends on the child credit line behind each allocation returning a
+balance, which is not documented and may not work on your facility.
 
-The payment link must carry the brand id in `udf1` and the target ad account in `udf2`.
-Without both, the top-up goes straight to `MANUAL_REVIEW` rather than guessing.
+The dashboard handles both cases rather than assuming: if utilisation comes back, you
+get the bars. If it doesn't, the column reads *"not exposed"* and a banner explains
+why — so **the dashboard itself tells you the answer** on first load.
 
-## Top-up lifecycle
+If it turns out utilisation isn't exposed, per-merchant spend has to come from
+ad-account data instead, which needs each merchant to grant your business a role on
+their ad accounts. That's a commercial conversation, not a code change.
 
-```
-PAID_UNVERIFIED ──► VERIFIED ──► LOADING ──► LOADED
-       │                │            │
-       └────────────────┴────────────┴──► MANUAL_REVIEW
-                                     └──► FAILED ──► LOADING (operator retry)
-```
+## How it stays fast
 
-Transitions are validated in `api/lib/keys.ts`; illegal ones return 409. Nothing
-auto-retries a credit extension.
+One endpoint, `/api/overview`, fans out across the credit graph with a concurrency
+limit of 8 and caches the result for **60 seconds**. That keeps a page load off the
+critical path of ~80 Graph calls and well inside the platform's 60s API limit.
+**Refresh** bypasses the cache for a genuinely fresh pull.
 
-## Two deliberate refusals in the Meta client
-
-`api/lib/meta.ts` will not:
-
-- **lower a `spend_cap`** — dropping a cap below `amount_spent` pauses live delivery
-- **send `spend_cap_action=reset`** — it zeroes `amount_spent`
-
-It also refuses to set a *first* cap on an account that has none, because on a live
-account that changes real spending behaviour. Set the first cap by hand.
-
-## The money model
-
-`api/lib/money.ts`. A brand's payment splits three ways and only one part is revenue:
+## Structure
 
 ```
-paid = spend × (1 + feeRate) × 1.18
+api/
+  index.ts             health, me, and the one data route
+  lib/meta.ts          the ONLY place that talks to Meta — all GETs
+  routes/data.ts       /api/overview + read-through cache + error hints
+  platform-sdk.ts      platform file, verbatim, do not edit
+src/
+  App.tsx              the whole dashboard — one page
+  components/Bar.tsx   utilisation bar
+  lib/api.ts           types and Indian-money formatting
 ```
-
-Verified against a real top-up: 50,000 spend + 1% fee + 18% GST = 59,590. The splitter
-rejects a fee rate above 25% on purpose — one brand's rate is stored as `50.00%` in the
-collections sheet where every other source says `0.50%`.
 
 ## Local development
 
 ```bash
-npm run dev        # frontend on :5173
-npm run dev:api    # API on :3001, proxied by vite
+npm run dev       # frontend on :5173
+npm run dev:api   # API on :3001, proxied by vite
 ```
 
-Platform services (`platform.cache`, `.jobs`, `.email`, `.storage`) only exist at
-runtime on the platform — they throw if called locally. The console degrades to empty
-states rather than crashing.
+Locally, set `META_ACCESS_TOKEN` and `META_BUSINESS_ID` in your shell before
+`npm run dev:api`. The platform cache doesn't exist locally, so every request hits Meta
+directly — the cache failure is caught and ignored.

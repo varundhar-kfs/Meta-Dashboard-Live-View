@@ -1,91 +1,261 @@
 /**
- * The only place this app talks to Meta. One call, well inside the 60s API limit.
- * Heavy ingestion lives in the K8s service — this is just the wallet write.
+ * Read-only Meta Graph access. The single place this app talks to Meta.
+ *
+ * Everything here is a GET. There is no write path in this codebase.
  */
 const BASE = 'https://graph.facebook.com';
 
-export interface MetaConfig {
+export interface Cfg {
   token: string;
   version: string;
+  businessId: string;
 }
 
-export function metaConfig(): MetaConfig {
+export function cfg(): Cfg {
   const token = process.env.META_ACCESS_TOKEN;
-  if (!token) throw new Error('META_ACCESS_TOKEN is not configured — add it in Dashboard → Secrets');
-  return { token, version: process.env.META_API_VERSION || 'v23.0' };
+  const businessId = process.env.META_BUSINESS_ID;
+  if (!token) throw new Error('META_ACCESS_TOKEN is not set — add it in Dashboard → Secrets');
+  if (!businessId) throw new Error('META_BUSINESS_ID is not set — add it in Dashboard → Secrets');
+  return { token, businessId, version: process.env.META_API_VERSION || 'v23.0' };
 }
 
-async function call<T>(
-  cfg: MetaConfig,
-  method: 'GET' | 'POST',
-  path: string,
-  params: Record<string, string> = {},
-): Promise<T> {
-  const url = new URL(`${BASE}/${cfg.version}${path.startsWith('/') ? path : `/${path}`}`);
-  const body = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (method === 'GET') url.searchParams.set(k, v);
-    else body.set(k, v);
-  }
+async function get<T>(c: Cfg, path: string, params: Record<string, string> = {}): Promise<T> {
+  const url = new URL(`${BASE}/${c.version}${path.startsWith('/') ? path : `/${path}`}`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res = await fetch(url, {
-    method,
-    headers: {
-      // Header, never a query param — a token in a URL ends up in logs.
-      Authorization: `Bearer ${cfg.token}`,
-      Accept: 'application/json',
-      ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
-    },
-    ...(method === 'POST' ? { body } : {}),
+    // Header, not a query param — a token in a URL ends up in access logs.
+    headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' },
   });
   const text = await res.text();
   const json = text ? JSON.parse(text) : {};
   if (!res.ok) {
-    const msg = (json as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`;
-    throw new Error(`Meta ${method} ${path}: ${msg}`);
+    const e = (json as { error?: { message?: string; code?: number } }).error;
+    const err = new Error(e?.message ?? `HTTP ${res.status} on ${path}`);
+    (err as Error & { code?: number; status?: number }).code = e?.code;
+    (err as Error & { code?: number; status?: number }).status = res.status;
+    throw err;
   }
   return json as T;
 }
 
-export interface AccountWallet {
-  id: string;
-  currency?: string;
-  amount_spent?: string;
-  spend_cap?: string;
-  account_status?: number;
+/** Follows paging cursors. Most of these edges are small, but allocations can page. */
+async function getAll<T>(c: Cfg, path: string, params: Record<string, string> = {}): Promise<T[]> {
+  const out: T[] = [];
+  let page = await get<{ data?: T[]; paging?: { cursors?: { after?: string } } }>(c, path, {
+    limit: '100',
+    ...params,
+  });
+  out.push(...(page.data ?? []));
+  for (let i = 0; i < 20; i += 1) {
+    const after = page.paging?.cursors?.after;
+    if (!after || !page.data?.length) break;
+    page = await get(c, path, { limit: '100', ...params, after });
+    out.push(...(page.data ?? []));
+  }
+  return out;
 }
 
-export async function readWallet(cfg: MetaConfig, adAccountId: string): Promise<AccountWallet> {
-  return call<AccountWallet>(cfg, 'GET', `/${adAccountId}`, {
-    fields: 'id,currency,amount_spent,spend_cap,account_status',
+/** Runs tasks with bounded concurrency so a wide fan-out stays inside the 60s API limit. */
+async function pool<I, O>(items: I[], limit: number, fn: (i: I) => Promise<O>): Promise<O[]> {
+  const out: O[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= items.length) return;
+        out[i] = await fn(items[i]!);
+      }
+    }),
+  );
+  return out;
+}
+
+/** Amounts arrive as either a bare string or a {amount,currency} object. */
+function amt(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = Number(v.replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof v === 'object') {
+    const n = Number(String((v as { amount?: unknown }).amount ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+function cur(v: unknown): string | null {
+  if (v && typeof v === 'object') {
+    const c = (v as { currency?: unknown }).currency;
+    if (typeof c === 'string') return c;
+  }
+  return null;
+}
+
+const CREDIT_FIELDS =
+  'id,legal_entity_name,allocated_amount,balance,credit_available,max_balance,' +
+  'online_max_balance,credit_type,is_access_revoked,owner_business_name,' +
+  'liable_biz_name,partition_from,receiving_credit_allocation_config';
+
+const ALLOC_FIELDS =
+  'id,amount,liability_type,partition_type,request_status,send_bill_to,' +
+  'receiving_business,owning_business,receiving_credit_allocation_config';
+
+const ACCOUNT_FIELDS =
+  'id,account_id,name,account_status,currency,amount_spent,spend_cap,balance,' +
+  'is_prepay_account,funding_source_details,business';
+
+export interface CreditLine {
+  id: string;
+  name: string | null;
+  currency: string | null;
+  limit: number | null;
+  spent: number | null;
+  available: number | null;
+  allocatedOut: number | null;
+  creditType: string | null;
+  accessRevoked: boolean;
+  liableBusiness: string | null;
+}
+
+export interface Allocation {
+  id: string;
+  creditLineId: string;
+  merchant: string;
+  merchantBusinessId: string | null;
+  currency: string | null;
+  allocated: number | null;
+  liabilityType: string | null;
+  partitionType: string | null;
+  status: string | null;
+  /** From the child credit line, when Meta exposes it. */
+  used: number | null;
+  available: number | null;
+  utilisation: number | null;
+  /** Why utilisation is missing, if it is. */
+  utilisationNote: string | null;
+}
+
+export interface AdAccount {
+  id: string;
+  name: string | null;
+  business: string | null;
+  currency: string | null;
+  status: number | null;
+  spent: number | null;
+  spendCap: number | null;
+  walletRemaining: number | null;
+  prepay: boolean;
+}
+
+export async function fetchCreditLines(c: Cfg): Promise<CreditLine[]> {
+  const raw = await getAll<Record<string, unknown>>(c, `/${c.businessId}/extendedcredits`, {
+    fields: CREDIT_FIELDS,
+  });
+  return raw.map((r) => ({
+    id: String(r['id']),
+    name: (r['legal_entity_name'] as string) ?? null,
+    currency: cur(r['max_balance']) ?? cur(r['balance']),
+    limit: amt(r['max_balance']) ?? amt(r['online_max_balance']),
+    spent: amt(r['balance']),
+    available: amt(r['credit_available']),
+    allocatedOut: amt(r['allocated_amount']),
+    creditType: (r['credit_type'] as string) ?? null,
+    accessRevoked: Boolean(r['is_access_revoked']),
+    liableBusiness: (r['liable_biz_name'] as string) ?? null,
+  }));
+}
+
+/** The child credit line id is nested under varying keys depending on the payload. */
+function childId(o: unknown): string | null {
+  if (!o || typeof o !== 'object') return null;
+  const direct = (o as { id?: unknown }).id;
+  if (typeof direct === 'string') return direct;
+  for (const v of Object.values(o as Record<string, unknown>)) {
+    if (v && typeof v === 'object') {
+      const nested = (v as { id?: unknown }).id;
+      if (typeof nested === 'string') return nested;
+    }
+  }
+  return null;
+}
+
+export async function fetchAllocations(c: Cfg, lines: CreditLine[]): Promise<Allocation[]> {
+  const nested = await pool(lines, 4, async (line) => {
+    const raw = await getAll<Record<string, unknown>>(
+      c,
+      `/${line.id}/owning_credit_allocation_configs`,
+      { fields: ALLOC_FIELDS },
+    ).catch(() => [] as Record<string, unknown>[]);
+    return raw.map((r) => ({ line, r }));
+  });
+
+  const flat = nested.flat();
+
+  return pool(flat, 8, async ({ line, r }): Promise<Allocation> => {
+    const biz = r['receiving_business'] as { id?: string; name?: string } | undefined;
+    const base: Allocation = {
+      id: String(r['id']),
+      creditLineId: line.id,
+      merchant: biz?.name ?? biz?.id ?? 'unknown',
+      merchantBusinessId: biz?.id ?? null,
+      currency: cur(r['amount']) ?? line.currency,
+      allocated: amt(r['amount']),
+      liabilityType: (r['liability_type'] as string) ?? null,
+      partitionType: (r['partition_type'] as string) ?? null,
+      status: (r['request_status'] as string) ?? null,
+      used: null,
+      available: null,
+      utilisation: null,
+      utilisationNote: null,
+    };
+
+    const child = childId(r['receiving_credit_allocation_config']);
+    if (!child) {
+      base.utilisationNote = 'no child credit line on the allocation payload';
+      return base;
+    }
+    try {
+      const node = await get<Record<string, unknown>>(c, `/${child}`, { fields: CREDIT_FIELDS });
+      const limit = amt(node['max_balance']);
+      const avail = amt(node['credit_available']);
+      const spent = amt(node['balance']);
+      const used = spent ?? (limit != null && avail != null ? limit - avail : null);
+      base.used = used;
+      base.available = avail;
+      const denom = limit ?? base.allocated;
+      base.utilisation = used != null && denom ? used / denom : null;
+      if (base.utilisation == null) base.utilisationNote = 'child line returned no usable amounts';
+    } catch (e) {
+      base.utilisationNote = e instanceof Error ? e.message : String(e);
+    }
+    return base;
   });
 }
 
-/**
- * Raise the wallet. Reads current state, adds `deltaMinor`, writes, reads back.
- *
- * Two deliberate refusals:
- *  - never lowers a cap (that can pause live delivery)
- *  - never sends spend_cap_action=reset (it zeroes amount_spent)
- */
-export async function raiseSpendCap(
-  cfg: MetaConfig,
-  adAccountId: string,
-  delta: number,
-): Promise<{ before: number; requested: number; after: number; ok: boolean }> {
-  if (!(delta > 0)) throw new Error('delta must be positive — this function never lowers a cap');
-
-  const before = await readWallet(cfg, adAccountId);
-  const currentCap = Number(before.spend_cap ?? 0);
-  if (!Number.isFinite(currentCap) || currentCap <= 0) {
-    throw new Error(
-      `Ad account ${adAccountId} has no spend_cap set. Setting a first cap changes live ` +
-        'spending behaviour, so it must be done deliberately in Ads Manager, not by this job.',
-    );
+export async function fetchAdAccounts(c: Cfg): Promise<AdAccount[]> {
+  const seen = new Map<string, Record<string, unknown>>();
+  for (const edge of ['client_ad_accounts', 'owned_ad_accounts']) {
+    const raw = await getAll<Record<string, unknown>>(c, `/${c.businessId}/${edge}`, {
+      fields: ACCOUNT_FIELDS,
+    }).catch(() => [] as Record<string, unknown>[]);
+    for (const r of raw) seen.set(String(r['id']), r);
   }
-  const requested = currentCap + delta;
-  await call(cfg, 'POST', `/${adAccountId}`, { spend_cap: String(requested) });
-
-  const after = await readWallet(cfg, adAccountId);
-  const newCap = Number(after.spend_cap ?? 0);
-  return { before: currentCap, requested, after: newCap, ok: Math.abs(newCap - requested) < 1 };
+  return [...seen.values()].map((r) => {
+    const spent = amt(r['amount_spent']);
+    const cap = amt(r['spend_cap']);
+    const biz = r['business'] as { name?: string } | undefined;
+    return {
+      id: String(r['id']),
+      name: (r['name'] as string) ?? null,
+      business: biz?.name ?? null,
+      currency: (r['currency'] as string) ?? null,
+      status: typeof r['account_status'] === 'number' ? (r['account_status'] as number) : null,
+      spent,
+      spendCap: cap && cap > 0 ? cap : null,
+      walletRemaining: cap && cap > 0 && spent != null ? cap - spent : null,
+      prepay: Boolean(r['is_prepay_account']),
+    };
+  });
 }

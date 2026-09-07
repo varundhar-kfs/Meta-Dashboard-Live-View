@@ -1,9 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { platformMiddleware } from './platform-sdk';
-import easebuzz from './routes/webhook-easebuzz';
-import topups from './routes/topups';
-import exposure from './routes/exposure';
+import data from './routes/data';
 
 const app = new Hono();
 
@@ -14,15 +12,14 @@ app.get('/api/health', (c) =>
   c.json({
     status: 'ok',
     app: process.env.APP_NAME ?? 'meta-credit-tower',
-    metaConfigured: Boolean(process.env.META_ACCESS_TOKEN),
-    gatewayConfigured: Boolean(process.env.EASEBUZZ_MERCHANT_KEY && process.env.EASEBUZZ_SALT),
+    tokenConfigured: Boolean(process.env.META_ACCESS_TOKEN),
+    businessIdConfigured: Boolean(process.env.META_BUSINESS_ID),
+    apiVersion: process.env.META_API_VERSION ?? 'v23.0',
   }),
 );
 
 app.get('/api/me', (c) => c.json({ email: c.get('userEmail') }));
 
-app.route('/', easebuzz);
-app.route('/', topups);
-app.route('/', exposure);
+app.route('/', data);
 
 export default app;
