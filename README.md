@@ -26,10 +26,28 @@ prefix — that would ship the token in the frontend bundle.
 
 ### Getting the token
 
-1. Business Manager → **Business settings** → **Users → System users**
-2. Add a system user (or use an existing one) with **Admin** access to the business
-3. **Generate new token** → pick your app → tick `business_management` and `ads_read`
-4. Copy it straight into Dashboard → Secrets. Don't paste it into chat, a ticket, or a commit
+Business Manager → **Business settings** → **Users → System users**.
+
+1. Select the system user (or add one)
+2. **`···` → Edit info → Finance role → `Finance analyst`**, then save.
+   This is the step that matters and it is easy to miss. Credit lines, allocations
+   and invoices are billing objects, gated behind the **Finance role** — which is
+   separate from Employee/Admin access. Without it the ad accounts read fine and
+   the facility comes back empty.
+   Choose *analyst*, not *editor*: analyst is view-only, which is all this app does.
+3. **Generate token** → pick your app → tick `business_management` and `ads_read`.
+   Do **not** grant `ads_management` — there is no write path in this codebase
+4. Paste it straight into Dashboard → Secrets. Never into chat, a ticket, or a commit
+
+Assign the merchant ad accounts to the same system user. *Partial access (View
+performance)* — the Analyst role — is enough for spend. `spend_cap` and `balance` are
+billing fields that usually need Advertiser or Admin on the account, so the **Wallet
+left** column will read *not set* for Analyst-only accounts. That degrades cleanly;
+only raise those roles if you want the wallet view.
+
+If the facility is still empty with a Finance role assigned, the remaining lever is the
+business role (Employee → Admin). For system users that is fixed at creation rather than
+editable, so it would mean adding a new system user with Admin access.
 
 ## Deploy
 
