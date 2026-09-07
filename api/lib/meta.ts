@@ -102,6 +102,10 @@ const ALLOC_FIELDS =
   'id,amount,liability_type,partition_type,request_status,send_bill_to,' +
   'receiving_business,owning_business,receiving_credit_allocation_config';
 
+const INVOICE_FIELDS =
+  'id,invoice_id,invoice_date,due_date,payment_term,payment_status,liability_type,' +
+  'entity,currency,amount,amount_due,billed_amount_details,ad_account_ids,billing_period';
+
 const ACCOUNT_FIELDS =
   'id,account_id,name,account_status,currency,amount_spent,spend_cap,balance,' +
   'is_prepay_account,funding_source_details,business';
@@ -147,6 +151,31 @@ export interface AdAccount {
   spendCap: number | null;
   walletRemaining: number | null;
   prepay: boolean;
+}
+
+export interface Invoice {
+  id: string;
+  invoiceId: string | null;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  paymentStatus: string | null;
+  paymentTerm: string | null;
+  liabilityType: string | null;
+  currency: string | null;
+  amount: number | null;
+  amountDue: number | null;
+  adAccountIds: string[];
+  billingPeriod: string | null;
+}
+
+/** Billed spend per ad account, derived from invoices. */
+export interface BilledAccount {
+  adAccountId: string;
+  billed: number;
+  due: number;
+  invoices: number;
+  currency: string | null;
+  lastInvoiceDate: string | null;
 }
 
 export async function fetchCreditLines(c: Cfg): Promise<CreditLine[]> {
@@ -258,4 +287,70 @@ export async function fetchAdAccounts(c: Cfg): Promise<AdAccount[]> {
       prepay: Boolean(r['is_prepay_account']),
     };
   });
+}
+
+
+/**
+ * Meta invoices for OUR business. Under Normal liability GoKwik is the billed
+ * entity, so these carry spend for merchant-owned ad accounts too — which makes
+ * them the only route to per-merchant utilisation when the credit sits in the
+ * merchant's own Business Manager and we cannot read their child credit line.
+ *
+ * Monthly and lagging, unlike the credit line, so it is billed-to-date rather
+ * than live. That distinction matters and the UI states it.
+ */
+export async function fetchInvoices(c: Cfg, since: string, until: string): Promise<Invoice[]> {
+  const raw = await getAll<Record<string, unknown>>(c, `/${c.businessId}/business_invoices`, {
+    fields: INVOICE_FIELDS,
+    start_date: since,
+    end_date: until,
+  });
+  return raw.map((r) => ({
+    id: String(r['id']),
+    invoiceId: (r['invoice_id'] as string) ?? null,
+    invoiceDate: (r['invoice_date'] as string) ?? null,
+    dueDate: (r['due_date'] as string) ?? null,
+    paymentStatus: (r['payment_status'] as string) ?? null,
+    paymentTerm: (r['payment_term'] as string) ?? null,
+    liabilityType: (r['liability_type'] as string) ?? null,
+    currency: (r['currency'] as string) ?? cur(r['amount_due']),
+    amount: amt(r['amount']),
+    amountDue: amt(r['amount_due']),
+    adAccountIds: Array.isArray(r['ad_account_ids'])
+      ? (r['ad_account_ids'] as unknown[]).map(String)
+      : [],
+    billingPeriod: (r['billing_period'] as string) ?? null,
+  }));
+}
+
+/**
+ * Roll invoices up per ad account. Where one invoice covers several accounts Meta
+ * does not split the amount, so it is apportioned evenly and flagged — better to
+ * show an approximation labelled as one than to drop the row.
+ */
+export function billedByAccount(invoices: Invoice[]): { rows: BilledAccount[]; apportioned: number } {
+  const map = new Map<string, BilledAccount>();
+  let apportioned = 0;
+  for (const inv of invoices) {
+    if (inv.adAccountIds.length === 0) continue;
+    if (inv.adAccountIds.length > 1) apportioned += 1;
+    const share = inv.adAccountIds.length;
+    for (const id of inv.adAccountIds) {
+      const row = map.get(id) ?? {
+        adAccountId: id, billed: 0, due: 0, invoices: 0,
+        currency: inv.currency, lastInvoiceDate: null,
+      };
+      row.billed += (inv.amount ?? 0) / share;
+      row.due += (inv.amountDue ?? 0) / share;
+      row.invoices += 1;
+      if (!row.lastInvoiceDate || (inv.invoiceDate && inv.invoiceDate > row.lastInvoiceDate)) {
+        row.lastInvoiceDate = inv.invoiceDate;
+      }
+      map.set(id, row);
+    }
+  }
+  return {
+    rows: [...map.values()].sort((a, b) => b.billed - a.billed),
+    apportioned,
+  };
 }

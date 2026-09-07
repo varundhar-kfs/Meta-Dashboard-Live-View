@@ -1,6 +1,16 @@
 import { Hono } from 'hono';
 import { platform } from '../platform-sdk';
-import { cfg, fetchAdAccounts, fetchAllocations, fetchCreditLines } from '../lib/meta';
+import {
+  billedByAccount, cfg, fetchAdAccounts, fetchAllocations, fetchCreditLines, fetchInvoices,
+} from '../lib/meta';
+
+/** Invoice window: this year to date is enough to show billed utilisation. */
+function invoiceWindow(): { since: string; until: string } {
+  const now = new Date();
+  const since = process.env.INVOICE_SINCE || `${now.getUTCFullYear()}-01-01`;
+  const until = new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10);
+  return { since, until };
+}
 
 export const data = new Hono();
 
@@ -51,10 +61,17 @@ data.get('/api/overview', async (c) => {
     const refresh = isRefresh(c.req.url);
     const payload = await cached('overview', refresh, async () => {
       const lines = await fetchCreditLines(conf);
-      const [allocations, accounts] = await Promise.all([
+      const win = invoiceWindow();
+      const [allocations, accounts, invoices] = await Promise.all([
         fetchAllocations(conf, lines),
         fetchAdAccounts(conf).catch(() => []),
+        // Non-fatal: the dashboard is still useful without the billed view.
+        fetchInvoices(conf, win.since, win.until).catch((e) => {
+          console.warn('invoices unavailable:', e instanceof Error ? e.message : String(e));
+          return [];
+        }),
       ]);
+      const billed = billedByAccount(invoices);
 
       const facility = lines.reduce(
         (a, l) => ({
@@ -76,12 +93,22 @@ data.get('/api/overview', async (c) => {
         lines,
         allocations,
         accounts,
+        billed: {
+          window: win,
+          invoices: invoices.length,
+          totalBilled: invoices.reduce((a, i) => a + (i.amount ?? 0), 0),
+          totalDue: invoices.reduce((a, i) => a + (i.amountDue ?? 0), 0),
+          apportionedInvoices: billed.apportioned,
+          byAccount: billed.rows,
+        },
         coverage: {
           allocations: allocations.length,
           withUtilisation: withUtil,
           // Answers the Phase 0 question by observation rather than by spike.
           utilisationReadable: allocations.length > 0 && withUtil > 0,
           adAccounts: accounts.length,
+          invoices: invoices.length,
+          billedAccounts: billed.rows.length,
         },
       };
     });

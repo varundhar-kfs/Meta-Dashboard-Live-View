@@ -75,10 +75,22 @@ function Dashboard({ d }: { d: Overview }) {
       {!d.coverage.utilisationReadable && d.coverage.allocations > 0 && (
         <Notice>
           Meta is returning allocation amounts but <strong>not per-merchant utilisation</strong> —
-          the child credit line behind each allocation did not expose a usable balance. Allocated
-          amounts below are live; the utilisation column is empty for that reason, not because
-          nothing has been spent. Per-merchant spend would then have to come from ad-account data,
-          which needs each merchant to grant access.
+          the child credit line behind each allocation did not expose a balance. That is expected
+          where credit is shared into the merchant&rsquo;s <em>own</em> Business Manager: the child line
+          belongs to their business, not ours, so our token cannot read it.
+          {d.coverage.invoices > 0 ? (
+            <>
+              {' '}Use <strong>Billed spend</strong> below instead — under Normal liability we are
+              the billed entity, so Meta&rsquo;s invoices carry the spend for merchant-owned accounts too.
+              Monthly and lagging rather than live, but it is per-account and complete.
+            </>
+          ) : (
+            <>
+              {' '}No invoices came back either, so per-merchant spend needs either a role on the
+              merchant&rsquo;s ad accounts or the <code className="rounded bg-amber-100 px-1">business_management</code>{' '}
+              scope on an <strong>Admin</strong> system user.
+            </>
+          )}
         </Notice>
       )}
 
@@ -160,8 +172,61 @@ function Dashboard({ d }: { d: Overview }) {
         )}
       </Panel>
 
+      <Panel
+        title="Billed spend, per ad account"
+        subtitle={
+          d.coverage.invoices > 0
+            ? `From ${d.coverage.invoices} Meta invoice(s) since ${d.billed.window.since}. ` +
+              `${money(d.billed.totalBilled, cy)} billed, ${money(d.billed.totalDue, cy)} still due. ` +
+              'This is billed-to-date, not live — it is the only per-account view available where ' +
+              "credit sits in the merchant's own Business Manager."
+            : 'No invoices returned. Needs business_management on an Admin system user.'
+        }
+      >
+        {d.billed.byAccount.length === 0 ? (
+          <Empty text="No invoice lines carried an ad account id." />
+        ) : (
+          <>
+            <Table
+              head={['Ad account', 'Invoices', 'Billed', 'Still due', 'Last invoice']}
+              align={['left', 'right', 'right', 'right', 'left']}
+            >
+              {d.billed.byAccount.map((b) => {
+                const known = d.accounts.find((a) => a.id.replace(/^act_/, '') === b.adAccountId.replace(/^act_/, ''));
+                return (
+                  <tr key={b.adAccountId} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-2">
+                      <div className="font-medium">{known?.name ?? b.adAccountId}</div>
+                      <div className="font-mono text-[10px] text-slate-400">
+                        {b.adAccountId}
+                        {!known && <span className="ml-1.5 text-amber-600">not visible to us</span>}
+                      </div>
+                    </td>
+                    <td className="tnum px-4 py-2 text-right text-slate-500">{b.invoices}</td>
+                    <td className="tnum px-4 py-2 text-right font-medium">{exact(b.billed, b.currency ?? cy)}</td>
+                    <td className={`tnum px-4 py-2 text-right ${b.due > 1 ? 'text-amber-700' : 'text-slate-400'}`}>
+                      {exact(b.due, b.currency ?? cy)}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-slate-500">{b.lastInvoiceDate ?? '—'}</td>
+                  </tr>
+                );
+              })}
+            </Table>
+            {d.billed.apportionedInvoices > 0 && (
+              <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500">
+                {d.billed.apportionedInvoices} invoice(s) covered more than one ad account. Meta does
+                not split the amount, so it is apportioned evenly across them — those rows are
+                approximate.
+              </p>
+            )}
+          </>
+        )}
+      </Panel>
+
       <p className="text-xs text-slate-400">
         Read-only. Cached for 60 seconds — Refresh forces a fresh pull from Meta.
+        Rows marked <em>not visible to us</em> are ad accounts we are billed for but hold no role on —
+        which is exactly the shared-credit population.
       </p>
     </>
   );

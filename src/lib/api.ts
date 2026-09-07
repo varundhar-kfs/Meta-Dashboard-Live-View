@@ -23,6 +23,11 @@ export interface AdAccount {
   walletRemaining: number | null; prepay: boolean;
 }
 
+export interface BilledAccount {
+  adAccountId: string; billed: number; due: number;
+  invoices: number; currency: string | null; lastInvoiceDate: string | null;
+}
+
 export interface Overview {
   asOf: string;
   apiVersion: string;
@@ -31,9 +36,18 @@ export interface Overview {
   lines: CreditLine[];
   allocations: Allocation[];
   accounts: AdAccount[];
+  billed: {
+    window: { since: string; until: string };
+    invoices: number;
+    totalBilled: number;
+    totalDue: number;
+    apportionedInvoices: number;
+    byAccount: BilledAccount[];
+  };
   coverage: {
     allocations: number; withUtilisation: number;
     utilisationReadable: boolean; adAccounts: number;
+    invoices: number; billedAccounts: number;
   };
 }
 
