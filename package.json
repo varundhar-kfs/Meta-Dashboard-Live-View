@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "tsx watch api/index.ts",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run build:api",
     "build:api": "esbuild api/index.ts --bundle --format=esm --platform=node --outfile=dist-api/handler.mjs --external:@aws-sdk/*",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
