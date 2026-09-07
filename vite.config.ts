@@ -5,7 +5,7 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   // REQUIRED by the platform — assets 404 and the page renders blank without it.
-  base: '/gokwik/meta-credit-tower/',
+  base: '/gokwik/meta-live-db/',
   resolve: { alias: { '@': path.resolve(__dirname, './src') } },
   server: { proxy: { '/api': 'http://localhost:3001' } },
 });

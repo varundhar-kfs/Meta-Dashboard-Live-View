@@ -1,7 +1,13 @@
 {
-  "name": "meta-credit-tower",
+  "name": "meta-live-db",
   "type": "fullstack",
-  "frontend": { "build": "npm run build", "output": "dist" },
-  "api": { "entry": "api/index.ts", "runtime": "nodejs20" },
+  "frontend": {
+    "build": "npm run build",
+    "output": "dist"
+  },
+  "api": {
+    "entry": "api/index.ts",
+    "runtime": "nodejs20"
+  },
   "access": []
 }
