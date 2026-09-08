@@ -52,6 +52,8 @@ export interface Overview {
     allocations: number; withUtilisation: number;
     utilisationReadable: boolean; adAccounts: number;
     invoices: number; billedAccounts: number;
+    blindAccounts: number; blindBilled: number;
+    liveShareOfBilled: number | null;
   };
 }
 

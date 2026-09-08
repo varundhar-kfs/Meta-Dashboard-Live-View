@@ -100,6 +100,50 @@ function Dashboard({ d }: { d: Overview }) {
       )}
 
       <Panel
+        title="Spend visibility"
+        subtitle="Where we can see live spend, and where we are flying on invoices alone."
+      >
+        <div className="grid grid-cols-1 divide-ink-800 sm:grid-cols-3 sm:divide-x">
+          <div className="p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">Live visibility</p>
+            <p className="tnum mt-1.5 text-2xl font-semibold text-ok">{d.coverage.adAccounts}</p>
+            <p className="mt-1 text-xs leading-snug text-ink-300">
+              accounts we hold a role on — spend, limit and remaining update in real time
+            </p>
+          </div>
+          <div className="p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">Billed by Meta</p>
+            <p className="tnum mt-1.5 text-2xl font-semibold text-ink-50">{d.coverage.billedAccounts}</p>
+            <p className="mt-1 text-xs leading-snug text-ink-300">
+              accounts on our invoices — every one of these is our liability
+            </p>
+          </div>
+          <div className="p-4">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">No live view</p>
+            <p className="tnum mt-1.5 text-2xl font-semibold text-warn">{d.coverage.blindAccounts}</p>
+            <p className="mt-1 text-xs leading-snug text-ink-300">
+              billed but no role held · {money(d.coverage.blindBilled, cy)} invoiced
+            </p>
+          </div>
+        </div>
+        {d.coverage.blindAccounts > 0 && (
+          <p className="border-t border-ink-800 px-4 py-3 text-xs leading-relaxed text-ink-300">
+            Those {d.coverage.blindAccounts} accounts sit in merchants&rsquo; own Business Managers.
+            The child credit line behind each share belongs to <em>their</em> business, so no token of
+            ours can read it — this is structural, not a permissions gap. Invoices are the only
+            per-account view available for them, and they lag by a billing cycle. To make any of
+            them live, the merchant has to add GoKwik as a partner on the ad account
+            (Analyst is enough).
+            {d.coverage.liveShareOfBilled != null && (
+              <>
+                {' '}Today {pct(d.coverage.liveShareOfBilled, 0)} of billed accounts are live.
+              </>
+            )}
+          </p>
+        )}
+      </Panel>
+
+      <Panel
         title="Merchant allocations"
         subtitle={
           d.coverage.utilisationReadable
@@ -244,6 +288,25 @@ function Dashboard({ d }: { d: Overview }) {
             )}
           </>
         )}
+      </Panel>
+
+      <Panel title="Credit lines seen by this token" subtitle="Compare against Billing & payments → Credit lines. A line missing here is a line this token cannot read.">
+        <Table head={['Credit line', 'Type', 'Limit', 'Drawn', 'Available', 'Allocated out']}
+               align={['left', 'left', 'right', 'right', 'right', 'right']}>
+          {d.lines.map((l) => (
+            <tr key={l.id} className="border-b border-ink-800 transition-colors last:border-0 hover:bg-ink-850/60">
+              <td className="px-4 py-2">
+                <div className="font-medium">{l.name ?? l.id}</div>
+                <div className="font-mono text-[10px] text-ink-400">{l.id}</div>
+              </td>
+              <td className="px-4 py-2 text-xs text-ink-300">{l.creditType ?? '—'}</td>
+              <td className="tnum px-4 py-2 text-right">{exact(l.limit, l.currency)}</td>
+              <td className="tnum px-4 py-2 text-right text-warn">{exact(l.spent, l.currency)}</td>
+              <td className="tnum px-4 py-2 text-right text-ok">{exact(l.available, l.currency)}</td>
+              <td className="tnum px-4 py-2 text-right text-ink-200">{exact(l.allocatedOut, l.currency)}</td>
+            </tr>
+          ))}
+        </Table>
       </Panel>
 
       <p className="text-xs text-ink-400">

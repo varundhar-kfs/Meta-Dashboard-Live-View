@@ -85,6 +85,17 @@ data.get('/api/overview', async (c) => {
 
       const withUtil = allocations.filter((x) => x.utilisation != null).length;
 
+      // The visibility gap. We are billed for every account on the credit line, but
+      // can only read live spend for accounts our business holds a role on. The
+      // difference is the merchant-BM population — the number that makes the
+      // access ask concrete rather than abstract.
+      const visibleIds = new Set(accounts.map((a) => a.id.replace(/^act_/, '')));
+      const billedIds = billed.rows.map((r) => r.adAccountId.replace(/^act_/, ''));
+      const blindIds = billedIds.filter((id) => !visibleIds.has(id));
+      const blindSpend = billed.rows
+        .filter((r) => !visibleIds.has(r.adAccountId.replace(/^act_/, '')))
+        .reduce((a, r) => a + r.billed, 0);
+
       return {
         asOf: new Date().toISOString(),
         apiVersion: conf.version,
@@ -109,6 +120,11 @@ data.get('/api/overview', async (c) => {
           adAccounts: accounts.length,
           invoices: invoices.length,
           billedAccounts: billed.rows.length,
+          /** Billed for, but no role held — so live spend is unavailable. */
+          blindAccounts: blindIds.length,
+          blindBilled: blindSpend,
+          liveShareOfBilled:
+            billed.rows.length > 0 ? (billed.rows.length - blindIds.length) / billed.rows.length : null,
         },
       };
     });
