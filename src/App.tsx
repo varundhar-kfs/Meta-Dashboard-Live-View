@@ -240,14 +240,17 @@ function Dashboard({ d }: { d: Overview }) {
       </Panel>
 
       <Panel
-        title="Billed spend, per ad account"
+        title="Billed by Meta, per ad account"
         subtitle={
           d.coverage.invoices > 0
-            ? `From ${d.coverage.invoices} Meta invoice(s) since ${d.billed.window.since}. ` +
-              `${money(d.billed.totalBilled, d.billed.currency)} billed, ${money(d.billed.totalDue, d.billed.currency)} still due. ` +
-              'This is billed-to-date, not live — it is the only per-account view available where ' +
-              "credit sits in the merchant's own Business Manager."
-            : 'No invoices returned. Needs business_management on an Admin system user.'
+            ? `${d.coverage.invoices} invoice(s) since ${d.billed.window.since} · ` +
+              `${money(d.billed.totalNet, d.billed.currency)} ad spend + ` +
+              `${money(d.billed.totalTax, d.billed.currency)} GST = ` +
+              `${money(d.billed.totalGross, d.billed.currency)} gross · ` +
+              `${money(d.billed.totalDue, d.billed.currency)} still due across ${d.billed.unpaid} unpaid` +
+              (d.billed.paymentTerm ? ` · terms ${d.billed.paymentTerm}` : '') +
+              (d.billed.termDaysMedian != null ? ` (${d.billed.termDaysMedian}d median)` : '')
+            : 'No invoices returned. Needs business_management on a Finance-role system user.'
         }
       >
         {d.billed.byAccount.length === 0 ? (
@@ -255,37 +258,55 @@ function Dashboard({ d }: { d: Overview }) {
         ) : (
           <>
             <Table
-              head={['Ad account', 'Invoices', 'Billed', 'Still due', 'Last invoice']}
-              align={['left', 'right', 'right', 'right', 'left']}
+              head={['Ad account', 'Invoices', 'Ad spend (ex GST)', 'Gross', 'Still due', 'Last invoice']}
+              align={['left', 'right', 'right', 'right', 'right', 'left']}
             >
               {d.billed.byAccount.map((b) => {
-                const known = d.accounts.find((a) => a.id.replace(/^act_/, '') === b.adAccountId.replace(/^act_/, ''));
+                const known = d.accounts.find(
+                  (a) => a.id.replace(/^act_/, '') === b.adAccountId.replace(/^act_/, ''),
+                );
                 return (
                   <tr key={b.adAccountId} className="border-b border-ink-800 transition-colors last:border-0 hover:bg-ink-850/60">
                     <td className="px-4 py-2">
                       <div className="font-medium">{known?.name ?? b.adAccountId}</div>
                       <div className="font-mono text-[10px] text-ink-400">
                         {b.adAccountId}
-                        {!known && <span className="ml-1.5 text-warn">not visible to us</span>}
+                        {!known && <span className="ml-1.5 text-warn">no live view</span>}
                       </div>
                     </td>
                     <td className="tnum px-4 py-2 text-right text-ink-300">{b.invoices}</td>
-                    <td className="tnum px-4 py-2 text-right font-medium">{exact(b.billed, b.currency ?? d.billed.currency)}</td>
-                    <td className={`tnum px-4 py-2 text-right ${b.due > 1 ? 'text-warn' : 'text-ink-400'}`}>
+                    <td className="tnum px-4 py-2 text-right font-medium">
+                      {exact(b.net, b.currency ?? d.billed.currency)}
+                    </td>
+                    <td className="tnum px-4 py-2 text-right text-ink-300">
+                      {exact(b.gross, b.currency ?? d.billed.currency)}
+                    </td>
+                    <td className={`tnum px-4 py-2 text-right ${b.due > 1 ? 'font-medium text-warn' : 'text-ink-600'}`}>
                       {exact(b.due, b.currency ?? d.billed.currency)}
                     </td>
-                    <td className="px-4 py-2 text-xs text-ink-300">{b.lastInvoiceDate ?? '—'}</td>
+                    <td className="px-4 py-2 text-xs text-ink-300">
+                      {b.lastInvoiceDate ? b.lastInvoiceDate.slice(0, 10) : '—'}
+                    </td>
                   </tr>
                 );
               })}
             </Table>
-            {d.billed.apportionedInvoices > 0 && (
-              <p className="border-t border-ink-800 px-4 py-2.5 text-xs text-ink-300">
-                {d.billed.apportionedInvoices} invoice(s) covered more than one ad account. Meta does
-                not split the amount, so it is apportioned evenly across them — those rows are
-                approximate.
-              </p>
-            )}
+            <p className="border-t border-ink-800 px-4 py-2.5 text-xs leading-relaxed text-ink-300">
+              <strong>Ad spend (ex GST)</strong> is what the programme actually finances — GST is
+              collected for the government and is never revenue or exposure.
+              {d.billed.liabilityType && (
+                <>
+                  {' '}Liability on these invoices is <strong>{d.billed.liabilityType}</strong>, meaning
+                  GoKwik is the billed party regardless of who spent it.
+                </>
+              )}
+              {d.billed.apportionedInvoices > 0 && (
+                <>
+                  {' '}{d.billed.apportionedInvoices} invoice(s) covered more than one ad account; Meta
+                  does not split those, so they are apportioned evenly and those rows are approximate.
+                </>
+              )}
+            </p>
           </>
         )}
       </Panel>

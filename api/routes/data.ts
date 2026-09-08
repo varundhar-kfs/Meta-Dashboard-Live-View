@@ -73,6 +73,10 @@ data.get('/api/overview', async (c) => {
         }),
       ]);
       const billed = billedByAccount(invoices);
+      // Payment terms, measured rather than assumed — this drives every float
+      // and facility figure in the strategy notes.
+      const terms = invoices.map((i) => i.termDays).filter((d): d is number => d != null).sort((a, b) => a - b);
+      const termMedian = terms.length ? terms[Math.floor(terms.length / 2)]! : null;
 
       const facility = lines.reduce(
         (a, l) => ({
@@ -111,8 +115,14 @@ data.get('/api/overview', async (c) => {
           // for the other's totals.
           currency: invoices.find((i) => i.currency)?.currency ?? null,
           invoices: invoices.length,
-          totalBilled: invoices.reduce((a, i) => a + (i.amount ?? 0), 0),
+          totalNet: invoices.reduce((a, i) => a + (i.net ?? 0), 0),
+          totalTax: invoices.reduce((a, i) => a + (i.tax ?? 0), 0),
+          totalGross: invoices.reduce((a, i) => a + (i.total ?? 0), 0),
           totalDue: invoices.reduce((a, i) => a + (i.amountDue ?? 0), 0),
+          unpaid: invoices.filter((i) => (i.amountDue ?? 0) > 1).length,
+          paymentTerm: invoices.find((i) => i.paymentTerm)?.paymentTerm ?? null,
+          termDaysMedian: termMedian,
+          liabilityType: invoices.find((i) => i.liabilityType)?.liabilityType ?? null,
           apportionedInvoices: billed.apportioned,
           byAccount: billed.rows,
         },

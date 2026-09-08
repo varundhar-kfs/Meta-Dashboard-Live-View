@@ -28,7 +28,10 @@ export interface AdAccount {
 }
 
 export interface BilledAccount {
-  adAccountId: string; billed: number; due: number;
+  adAccountId: string;
+  net: number;    // ad spend excluding GST
+  gross: number;  // including GST
+  due: number;
   invoices: number; currency: string | null; lastInvoiceDate: string | null;
 }
 
@@ -44,8 +47,14 @@ export interface Overview {
     window: { since: string; until: string };
     currency: string | null;
     invoices: number;
-    totalBilled: number;
+    totalNet: number;
+    totalTax: number;
+    totalGross: number;
     totalDue: number;
+    unpaid: number;
+    paymentTerm: string | null;
+    termDaysMedian: number | null;
+    liabilityType: string | null;
     apportionedInvoices: number;
     byAccount: BilledAccount[];
   };

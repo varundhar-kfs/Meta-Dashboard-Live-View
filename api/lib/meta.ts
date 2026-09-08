@@ -204,11 +204,19 @@ export interface Invoice {
   invoiceId: string | null;
   invoiceDate: string | null;
   dueDate: string | null;
+  /** Days from issue to due — Meta's stated payment term, measured. */
+  termDays: number | null;
   paymentStatus: string | null;
   paymentTerm: string | null;
   liabilityType: string | null;
+  entity: string | null;
   currency: string | null;
-  amount: number | null;
+  /** Ad spend excluding GST. The number the programme actually finances. */
+  net: number | null;
+  /** GST — collected for the government, never revenue. */
+  tax: number | null;
+  /** net + tax. */
+  total: number | null;
   amountDue: number | null;
   adAccountIds: string[];
   billingPeriod: string | null;
@@ -217,7 +225,10 @@ export interface Invoice {
 /** Billed spend per ad account, derived from invoices. */
 export interface BilledAccount {
   adAccountId: string;
-  billed: number;
+  /** Ad spend excluding GST. */
+  net: number;
+  /** Gross including GST. */
+  gross: number;
   due: number;
   invoices: number;
   currency: string | null;
@@ -351,28 +362,64 @@ export async function fetchAdAccounts(c: Cfg): Promise<AdAccount[]> {
  * Monthly and lagging, unlike the credit line, so it is billed-to-date rather
  * than live. That distinction matters and the UI states it.
  */
+/**
+ * Meta mixes units within a single invoice, verified against a live payload:
+ *   amount                              -> "186182044"      hundredths
+ *   amount_due.amount                   -> "1,861,820.44"   major units
+ *   amount_due.amount_in_hundredths     -> "186182044"       hundredths
+ *   billed_amount_details.net_amount    -> "1,577,813.92"   major units
+ *   billed_amount_details.*_in_millis   -> thousandths
+ *
+ * So `amount` alone is a trap: it reads as a plausible integer while being 100x
+ * the real figure. Prefer billed_amount_details, which is explicit and also
+ * splits GST out of the ad spend.
+ */
+function detail(o: unknown, key: string): number | null {
+  if (!o || typeof o !== 'object') return null;
+  return amt((o as Record<string, unknown>)[key]);
+}
+
 export async function fetchInvoices(c: Cfg, since: string, until: string): Promise<Invoice[]> {
   const raw = await getAll<Record<string, unknown>>(c, `/${c.businessId}/business_invoices`, {
     fields: INVOICE_FIELDS,
     start_date: since,
     end_date: until,
   });
-  return raw.map((r) => ({
-    id: String(r['id']),
-    invoiceId: (r['invoice_id'] as string) ?? null,
-    invoiceDate: (r['invoice_date'] as string) ?? null,
-    dueDate: (r['due_date'] as string) ?? null,
-    paymentStatus: (r['payment_status'] as string) ?? null,
-    paymentTerm: (r['payment_term'] as string) ?? null,
-    liabilityType: (r['liability_type'] as string) ?? null,
-    currency: (r['currency'] as string) ?? cur(r['amount_due']),
-    amount: amt(r['amount']),
-    amountDue: amt(r['amount_due']),
-    adAccountIds: Array.isArray(r['ad_account_ids'])
-      ? (r['ad_account_ids'] as unknown[]).map(String)
-      : [],
-    billingPeriod: (r['billing_period'] as string) ?? null,
-  }));
+  return raw.map((r) => {
+    const d = r['billed_amount_details'];
+    // amount_due carries a pre-formatted major-unit string; amt() strips the commas.
+    const due = amt(r['amount_due']);
+    const net = detail(d, 'net_amount');
+    const tax = detail(d, 'tax_amount');
+    // Fall back to amount/100 only when the detail object is absent.
+    const total = detail(d, 'total_amount') ?? (amt(r['amount']) != null ? amt(r['amount'])! / 100 : null);
+    const issued = (r['invoice_date'] as string) ?? null;
+    const dueDate = (r['due_date'] as string) ?? null;
+    const termDays =
+      issued && dueDate
+        ? Math.round((Date.parse(dueDate) - Date.parse(issued)) / 86_400_000)
+        : null;
+    return {
+      id: String(r['id']),
+      invoiceId: (r['invoice_id'] as string) ?? null,
+      invoiceDate: issued,
+      dueDate,
+      termDays: Number.isFinite(termDays) ? termDays : null,
+      paymentStatus: (r['payment_status'] as string) ?? null,
+      paymentTerm: (r['payment_term'] as string) ?? null,
+      liabilityType: (r['liability_type'] as string) ?? null,
+      entity: (r['entity'] as string) ?? null,
+      currency: (r['currency'] as string) ?? (detail(d, 'currency') as unknown as string) ?? cur(r['amount_due']),
+      net,
+      tax,
+      total,
+      amountDue: due,
+      adAccountIds: Array.isArray(r['ad_account_ids'])
+        ? (r['ad_account_ids'] as unknown[]).map(String)
+        : [],
+      billingPeriod: (r['billing_period'] as string) ?? null,
+    };
+  });
 }
 
 /**
@@ -389,10 +436,11 @@ export function billedByAccount(invoices: Invoice[]): { rows: BilledAccount[]; a
     const share = inv.adAccountIds.length;
     for (const id of inv.adAccountIds) {
       const row = map.get(id) ?? {
-        adAccountId: id, billed: 0, due: 0, invoices: 0,
+        adAccountId: id, net: 0, gross: 0, due: 0, invoices: 0,
         currency: inv.currency, lastInvoiceDate: null,
       };
-      row.billed += (inv.amount ?? 0) / share;
+      row.net += (inv.net ?? 0) / share;
+      row.gross += (inv.total ?? 0) / share;
       row.due += (inv.amountDue ?? 0) / share;
       row.invoices += 1;
       if (!row.lastInvoiceDate || (inv.invoiceDate && inv.invoiceDate > row.lastInvoiceDate)) {
@@ -402,7 +450,7 @@ export function billedByAccount(invoices: Invoice[]): { rows: BilledAccount[]; a
     }
   }
   return {
-    rows: [...map.values()].sort((a, b) => b.billed - a.billed),
+    rows: [...map.values()].sort((a, b) => b.net - a.net),
     apportioned,
   };
 }
