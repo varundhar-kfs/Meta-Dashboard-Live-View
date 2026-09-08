@@ -19,8 +19,12 @@ export interface Allocation {
 
 export interface AdAccount {
   id: string; name: string | null; business: string | null; currency: string | null;
-  status: number | null; spent: number | null; spendCap: number | null;
-  walletRemaining: number | null; prepay: boolean;
+  status: number | null;
+  outstanding: number | null;   // Meta: "Outstanding balance" — bill amount due
+  spent: number | null;         // counted against the cap since it was last reset
+  spendCap: number | null;      // Meta: "Spending limit" — the wallet ceiling
+  remaining: number | null;     // Meta: "Remaining amount"
+  prepay: boolean;
 }
 
 export interface BilledAccount {

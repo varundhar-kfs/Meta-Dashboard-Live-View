@@ -103,6 +103,29 @@ function amt(v: unknown): number | null {
   }
   return null;
 }
+/**
+ * Meta returns ad-account money fields (amount_spent, spend_cap, balance) in the
+ * account currency's SMALLEST unit — paise for INR, cents for USD. Rendering them
+ * raw overstates everything by 100x. Verified against Business Manager: an account
+ * showing a Rs 112,151.75 spending limit returns 11215175.
+ *
+ * Zero-decimal currencies have no sub-unit, so their offset is 1.
+ */
+const ZERO_DECIMAL = new Set([
+  'JPY', 'KRW', 'VND', 'CLP', 'ISK', 'BIF', 'DJF', 'GNF', 'KMF',
+  'MGA', 'PYG', 'RWF', 'UGX', 'VUV', 'XAF', 'XOF', 'XPF',
+]);
+
+export function minorUnits(currency: string | null | undefined): number {
+  if (!currency) return 100;
+  return ZERO_DECIMAL.has(currency.toUpperCase()) ? 1 : 100;
+}
+
+/** Convert a minor-unit figure to major units, preserving null. */
+function major(v: number | null, currency: string | null | undefined): number | null {
+  return v == null ? null : v / minorUnits(currency);
+}
+
 function cur(v: unknown): string | null {
   if (v && typeof v === 'object') {
     const c = (v as { currency?: unknown }).currency;
@@ -165,9 +188,14 @@ export interface AdAccount {
   business: string | null;
   currency: string | null;
   status: number | null;
+  /** Bill amount due on the account — Meta calls this "Outstanding balance". */
+  outstanding: number | null;
+  /** Spend counted against the cap since it was last set or reset. */
   spent: number | null;
+  /** The wallet ceiling. Null when no cap is set. */
   spendCap: number | null;
-  walletRemaining: number | null;
+  /** spendCap - spent, i.e. Meta's "Remaining amount". */
+  remaining: number | null;
   prepay: boolean;
 }
 
@@ -290,18 +318,24 @@ export async function fetchAdAccounts(c: Cfg): Promise<AdAccount[]> {
     for (const r of raw) seen.set(String(r['id']), r);
   }
   return [...seen.values()].map((r) => {
-    const spent = amt(r['amount_spent']);
-    const cap = amt(r['spend_cap']);
+    const currency = (r['currency'] as string) ?? null;
+    // All three arrive in minor units.
+    const spent = major(amt(r['amount_spent']), currency);
+    const rawCap = major(amt(r['spend_cap']), currency);
+    const outstanding = major(amt(r['balance']), currency);
+    // Meta reports spend_cap as 0 when none is set, which is not the same as a zero cap.
+    const spendCap = rawCap && rawCap > 0 ? rawCap : null;
     const biz = r['business'] as { name?: string } | undefined;
     return {
       id: String(r['id']),
       name: (r['name'] as string) ?? null,
       business: biz?.name ?? null,
-      currency: (r['currency'] as string) ?? null,
+      currency,
       status: typeof r['account_status'] === 'number' ? (r['account_status'] as number) : null,
+      outstanding,
       spent,
-      spendCap: cap && cap > 0 ? cap : null,
-      walletRemaining: cap && cap > 0 && spent != null ? cap - spent : null,
+      spendCap,
+      remaining: spendCap != null && spent != null ? spendCap - spent : null,
       prepay: Boolean(r['is_prepay_account']),
     };
   });

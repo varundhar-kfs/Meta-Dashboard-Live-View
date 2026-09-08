@@ -137,38 +137,56 @@ function Dashboard({ d }: { d: Overview }) {
         title="Ad accounts"
         subtitle={
           d.accounts.length
-            ? `${d.accounts.length} account(s) visible to us. Wallet = spend cap − amount spent, and is blank where no cap is set.`
+            ? `${d.accounts.length} account(s) visible to us. Figures come from Meta in the account ` +
+              'currency\u2019s smallest unit and are converted here, so they match Business Manager exactly.'
             : 'None visible. Ad-account spend needs each merchant to grant a role on their account.'
         }
       >
         {d.accounts.length === 0 ? (
           <Empty text="No ad accounts reachable from this business." />
         ) : (
-          <Table
-            head={['Account', 'Business', 'Status', 'Spent', 'Spend cap', 'Wallet left']}
-            align={['left', 'left', 'left', 'right', 'right', 'right']}
-          >
-            {d.accounts.map((x) => (
-              <tr key={x.id} className="border-b border-slate-100 last:border-0">
-                <td className="px-4 py-2">
-                  <div className="font-medium">{x.name ?? x.id}</div>
-                  <div className="font-mono text-[10px] text-slate-400">{x.id}</div>
-                </td>
-                <td className="px-4 py-2 text-xs text-slate-600">{x.business ?? '—'}</td>
-                <td className="px-4 py-2">
-                  <Pill
-                    text={x.status != null ? (ACCOUNT_STATUS[x.status] ?? String(x.status)) : '—'}
-                    tone={x.status === 1 ? 'good' : x.status == null ? 'neutral' : 'warn'}
-                  />
-                </td>
-                <td className="tnum px-4 py-2 text-right">{exact(x.spent, x.currency)}</td>
-                <td className="tnum px-4 py-2 text-right text-slate-600">
-                  {x.spendCap != null ? exact(x.spendCap, x.currency) : <span className="text-slate-300">not set</span>}
-                </td>
-                <td className="tnum px-4 py-2 text-right font-medium">{exact(x.walletRemaining, x.currency)}</td>
-              </tr>
-            ))}
-          </Table>
+          <>
+            <Table
+              head={['Account', 'Status', 'Outstanding balance', 'Spent', 'Spending limit', 'Remaining']}
+              align={['left', 'left', 'right', 'right', 'right', 'right']}
+            >
+              {[...d.accounts]
+                .sort((a, b) => (b.outstanding ?? 0) - (a.outstanding ?? 0))
+                .map((x) => (
+                  <tr key={x.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-2">
+                      <div className="font-medium">{x.name ?? x.id}</div>
+                      <div className="font-mono text-[10px] text-slate-400">
+                        {x.id}
+                        {x.business && <span className="ml-1.5 text-slate-500">{x.business}</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Pill
+                        text={x.status != null ? (ACCOUNT_STATUS[x.status] ?? String(x.status)) : '—'}
+                        tone={x.status === 1 ? 'good' : x.status == null ? 'neutral' : 'warn'}
+                      />
+                    </td>
+                    <td className={`tnum px-4 py-2 text-right ${(x.outstanding ?? 0) > 0 ? 'font-medium text-amber-700' : 'text-slate-400'}`}>
+                      {exact(x.outstanding, x.currency)}
+                    </td>
+                    <td className="tnum px-4 py-2 text-right text-slate-600">{exact(x.spent, x.currency)}</td>
+                    <td className="tnum px-4 py-2 text-right text-slate-600">
+                      {x.spendCap != null ? exact(x.spendCap, x.currency) : <span className="text-slate-300">not set</span>}
+                    </td>
+                    <td className="tnum px-4 py-2 text-right font-medium">
+                      {x.remaining != null ? exact(x.remaining, x.currency) : <span className="text-slate-300">—</span>}
+                    </td>
+                  </tr>
+                ))}
+            </Table>
+            <p className="border-t border-slate-100 px-4 py-2.5 text-xs leading-relaxed text-slate-500">
+              <strong>Outstanding balance</strong> is the unpaid bill on the account.{' '}
+              <strong>Spent</strong> counts only against the current spending limit and resets when
+              that limit is reset — so an account can show zero spent while still carrying a balance.{' '}
+              <strong>Remaining</strong> is limit minus spent, which is the usable wallet.
+            </p>
+          </>
         )}
       </Panel>
 
