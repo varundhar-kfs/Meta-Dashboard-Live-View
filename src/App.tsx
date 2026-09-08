@@ -17,24 +17,29 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white">
+      <header className="relative border-b border-ink-700 bg-ink-900">
+        <div className="absolute inset-x-0 top-0 h-px bg-gk-edge" />
         <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6">
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">Meta Credit Tower</h1>
-            <p className="mt-0.5 text-sm text-slate-500">
+            <h1 className="text-lg font-semibold tracking-tight">
+              <span className="text-gk-orange">GoKwik</span>
+              <span className="mx-2 text-ink-600">/</span>
+              Meta Credit Tower
+            </h1>
+            <p className="mt-0.5 text-sm text-ink-300">
               Live credit line, merchant allocations and ad-account spend, read straight from Meta
             </p>
           </div>
           <div className="flex items-center gap-3">
             {q.data && (
-              <span className="tnum text-xs text-slate-400">
+              <span className="tnum text-xs text-ink-400">
                 as of {new Date(q.data.asOf).toLocaleTimeString('en-IN')} · {q.data.apiVersion}
               </span>
             )}
             <button
               onClick={refresh}
               disabled={q.isFetching}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink-700 bg-ink-850 px-3 py-1.5 text-sm font-medium text-ink-100 transition hover:border-gk-orange/60 hover:text-gk-orange disabled:opacity-40"
             >
               {q.isFetching ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -87,7 +92,7 @@ function Dashboard({ d }: { d: Overview }) {
           ) : (
             <>
               {' '}No invoices came back either, so per-merchant spend needs either a role on the
-              merchant&rsquo;s ad accounts or the <code className="rounded bg-amber-100 px-1">business_management</code>{' '}
+              merchant&rsquo;s ad accounts or the <code className="rounded bg-warn/15 px-1">business_management</code>{' '}
               scope on an <strong>Admin</strong> system user.
             </>
           )}
@@ -110,11 +115,11 @@ function Dashboard({ d }: { d: Overview }) {
             align={['left', 'right', 'right', 'right', 'left', 'left', 'right']}
           >
             {allocs.map((a) => (
-              <tr key={a.id} className="border-b border-slate-100 last:border-0">
+              <tr key={a.id} className="border-b border-ink-800 transition-colors last:border-0 hover:bg-ink-850/60">
                 <td className="px-4 py-2">
                   <div className="font-medium">{a.merchant}</div>
                   {a.merchantBusinessId && (
-                    <div className="font-mono text-[10px] text-slate-400">{a.merchantBusinessId}</div>
+                    <div className="font-mono text-[10px] text-ink-400">{a.merchantBusinessId}</div>
                   )}
                 </td>
                 <td className="tnum px-4 py-2 text-right">{exact(a.allocated, a.currency)}</td>
@@ -123,7 +128,7 @@ function Dashboard({ d }: { d: Overview }) {
                 <td className="px-4 py-2">
                   <Pill text={a.liabilityType ?? '—'} tone={a.liabilityType === 'Normal' ? 'warn' : 'neutral'} />
                 </td>
-                <td className="px-4 py-2 text-xs text-slate-500">{a.status ?? '—'}</td>
+                <td className="px-4 py-2 text-xs text-ink-300">{a.status ?? '—'}</td>
                 <td className="px-4 py-2 text-right">
                   {a.utilisation != null ? <Bar value={a.utilisation} /> : <Missing note={a.utilisationNote} />}
                 </td>
@@ -153,12 +158,12 @@ function Dashboard({ d }: { d: Overview }) {
               {[...d.accounts]
                 .sort((a, b) => (b.outstanding ?? 0) - (a.outstanding ?? 0))
                 .map((x) => (
-                  <tr key={x.id} className="border-b border-slate-100 last:border-0">
+                  <tr key={x.id} className="border-b border-ink-800 transition-colors last:border-0 hover:bg-ink-850/60">
                     <td className="px-4 py-2">
                       <div className="font-medium">{x.name ?? x.id}</div>
-                      <div className="font-mono text-[10px] text-slate-400">
+                      <div className="font-mono text-[10px] text-ink-400">
                         {x.id}
-                        {x.business && <span className="ml-1.5 text-slate-500">{x.business}</span>}
+                        {x.business && <span className="ml-1.5 text-ink-300">{x.business}</span>}
                       </div>
                     </td>
                     <td className="px-4 py-2">
@@ -167,20 +172,20 @@ function Dashboard({ d }: { d: Overview }) {
                         tone={x.status === 1 ? 'good' : x.status == null ? 'neutral' : 'warn'}
                       />
                     </td>
-                    <td className={`tnum px-4 py-2 text-right ${(x.outstanding ?? 0) > 0 ? 'font-medium text-amber-700' : 'text-slate-400'}`}>
+                    <td className={`tnum px-4 py-2 text-right ${(x.outstanding ?? 0) > 0 ? 'font-medium text-warn' : 'text-ink-400'}`}>
                       {exact(x.outstanding, x.currency)}
                     </td>
-                    <td className="tnum px-4 py-2 text-right text-slate-600">{exact(x.spent, x.currency)}</td>
-                    <td className="tnum px-4 py-2 text-right text-slate-600">
-                      {x.spendCap != null ? exact(x.spendCap, x.currency) : <span className="text-slate-300">not set</span>}
+                    <td className="tnum px-4 py-2 text-right text-ink-200">{exact(x.spent, x.currency)}</td>
+                    <td className="tnum px-4 py-2 text-right text-ink-200">
+                      {x.spendCap != null ? exact(x.spendCap, x.currency) : <span className="text-ink-600">not set</span>}
                     </td>
                     <td className="tnum px-4 py-2 text-right font-medium">
-                      {x.remaining != null ? exact(x.remaining, x.currency) : <span className="text-slate-300">—</span>}
+                      {x.remaining != null ? exact(x.remaining, x.currency) : <span className="text-ink-600">—</span>}
                     </td>
                   </tr>
                 ))}
             </Table>
-            <p className="border-t border-slate-100 px-4 py-2.5 text-xs leading-relaxed text-slate-500">
+            <p className="border-t border-ink-800 px-4 py-2.5 text-xs leading-relaxed text-ink-300">
               <strong>Outstanding balance</strong> is the unpaid bill on the account.{' '}
               <strong>Spent</strong> counts only against the current spending limit and resets when
               that limit is reset — so an account can show zero spent while still carrying a balance.{' '}
@@ -212,26 +217,26 @@ function Dashboard({ d }: { d: Overview }) {
               {d.billed.byAccount.map((b) => {
                 const known = d.accounts.find((a) => a.id.replace(/^act_/, '') === b.adAccountId.replace(/^act_/, ''));
                 return (
-                  <tr key={b.adAccountId} className="border-b border-slate-100 last:border-0">
+                  <tr key={b.adAccountId} className="border-b border-ink-800 transition-colors last:border-0 hover:bg-ink-850/60">
                     <td className="px-4 py-2">
                       <div className="font-medium">{known?.name ?? b.adAccountId}</div>
-                      <div className="font-mono text-[10px] text-slate-400">
+                      <div className="font-mono text-[10px] text-ink-400">
                         {b.adAccountId}
-                        {!known && <span className="ml-1.5 text-amber-600">not visible to us</span>}
+                        {!known && <span className="ml-1.5 text-warn">not visible to us</span>}
                       </div>
                     </td>
-                    <td className="tnum px-4 py-2 text-right text-slate-500">{b.invoices}</td>
+                    <td className="tnum px-4 py-2 text-right text-ink-300">{b.invoices}</td>
                     <td className="tnum px-4 py-2 text-right font-medium">{exact(b.billed, b.currency ?? cy)}</td>
-                    <td className={`tnum px-4 py-2 text-right ${b.due > 1 ? 'text-amber-700' : 'text-slate-400'}`}>
+                    <td className={`tnum px-4 py-2 text-right ${b.due > 1 ? 'text-warn' : 'text-ink-400'}`}>
                       {exact(b.due, b.currency ?? cy)}
                     </td>
-                    <td className="px-4 py-2 text-xs text-slate-500">{b.lastInvoiceDate ?? '—'}</td>
+                    <td className="px-4 py-2 text-xs text-ink-300">{b.lastInvoiceDate ?? '—'}</td>
                   </tr>
                 );
               })}
             </Table>
             {d.billed.apportionedInvoices > 0 && (
-              <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500">
+              <p className="border-t border-ink-800 px-4 py-2.5 text-xs text-ink-300">
                 {d.billed.apportionedInvoices} invoice(s) covered more than one ad account. Meta does
                 not split the amount, so it is apportioned evenly across them — those rows are
                 approximate.
@@ -241,7 +246,7 @@ function Dashboard({ d }: { d: Overview }) {
         )}
       </Panel>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-ink-400">
         Read-only. Cached for 60 seconds — Refresh forces a fresh pull from Meta.
         Rows marked <em>not visible to us</em> are ad accounts we are billed for but hold no role on —
         which is exactly the shared-credit population.
@@ -255,12 +260,12 @@ function Dashboard({ d }: { d: Overview }) {
 function Card({ label, value, note, tone = 'neutral' }: {
   label: string; value: string; note?: string; tone?: 'neutral' | 'good' | 'warn';
 }) {
-  const c = { neutral: 'text-slate-900', good: 'text-emerald-700', warn: 'text-amber-700' }[tone];
+  const c = { neutral: 'text-ink-50', good: 'text-ok', warn: 'text-warn' }[tone];
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400">{label}</p>
+    <div className="relative overflow-hidden rounded-lg border border-ink-700 bg-ink-900 p-4 gk-edge">
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">{label}</p>
       <p className={`tnum mt-2 text-2xl font-semibold tracking-tight ${c}`}>{value}</p>
-      {note && <p className="mt-1 text-xs text-slate-500">{note}</p>}
+      {note && <p className="mt-1 text-xs text-ink-300">{note}</p>}
     </div>
   );
 }
@@ -269,10 +274,10 @@ function Panel({ title, subtitle, children }: {
   title: string; subtitle?: string; children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-4 py-3">
+    <section className="rounded-lg border border-ink-700 bg-ink-900">
+      <div className="border-b border-ink-700 px-4 py-3">
         <h2 className="text-sm font-semibold">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-xs leading-snug text-slate-500">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 text-xs leading-snug text-ink-300">{subtitle}</p>}
       </div>
       {children}
     </section>
@@ -286,7 +291,7 @@ function Table({ head, align, children }: {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 font-mono text-[10px] uppercase tracking-wider text-slate-400">
+          <tr className="border-b border-ink-700 bg-ink-850/70 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-400">
             {head.map((h, i) => (
               <th key={h} className={`px-4 py-2 font-medium ${align[i] === 'right' ? 'text-right' : 'text-left'}`}>
                 {h}
@@ -303,7 +308,7 @@ function Table({ head, align, children }: {
 const Pill = ({ text, tone }: { text: string; tone: 'neutral' | 'good' | 'warn' }) => (
   <span
     className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-      { neutral: 'bg-slate-100 text-slate-600', good: 'bg-emerald-100 text-emerald-800', warn: 'bg-amber-100 text-amber-800' }[tone]
+      { neutral: 'bg-ink-800 text-ink-300 ring-1 ring-inset ring-ink-700', good: 'bg-ok/12 text-ok ring-1 ring-inset ring-ok/25', warn: 'bg-warn/12 text-warn ring-1 ring-inset ring-warn/25' }[tone]
     }`}
   >
     {text}
@@ -311,17 +316,17 @@ const Pill = ({ text, tone }: { text: string; tone: 'neutral' | 'good' | 'warn' 
 );
 
 const Missing = ({ note }: { note: string | null }) => (
-  <span className="text-xs text-slate-400" title={note ?? undefined}>
+  <span className="text-xs text-ink-400" title={note ?? undefined}>
     not exposed
   </span>
 );
 
 const Empty = ({ text }: { text: string }) => (
-  <p className="px-4 py-8 text-center text-sm text-slate-500">{text}</p>
+  <p className="px-4 py-8 text-center text-sm text-ink-300">{text}</p>
 );
 
 const Notice = ({ children }: { children: ReactNode }) => (
-  <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900">
+  <div className="flex items-start gap-2.5 rounded-lg border border-warn/25 bg-warn/[0.07] p-4 text-sm leading-relaxed text-warn">
     <Info size={16} className="mt-0.5 shrink-0" />
     <p>{children}</p>
   </div>
@@ -331,25 +336,25 @@ const Skeleton = () => (
   <div className="space-y-6">
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-24 animate-pulse rounded-lg border border-slate-200 bg-white" />
+        <div key={i} className="h-24 animate-pulse rounded-lg border border-ink-700 bg-ink-900/60" />
       ))}
     </div>
-    <div className="h-64 animate-pulse rounded-lg border border-slate-200 bg-white" />
+    <div className="h-64 animate-pulse rounded-lg border border-ink-700 bg-ink-900/60" />
   </div>
 );
 
 function Failure({ error }: { error: Error }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+    <div className="rounded-lg border border-bad/25 bg-bad/[0.07] p-4">
       <div className="flex items-start gap-2.5">
-        <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+        <AlertCircle size={16} className="mt-0.5 shrink-0 text-bad" />
         <div className="text-sm">
-          <p className="font-semibold text-red-900">Could not read from Meta</p>
-          <p className="mt-1 text-red-800">{error.message}</p>
-          <p className="mt-2 text-xs text-red-700">
-            Check <code className="rounded bg-red-100 px-1">META_ACCESS_TOKEN</code> and{' '}
-            <code className="rounded bg-red-100 px-1">META_BUSINESS_ID</code> in Dashboard → Secrets,
-            then Refresh. <code className="rounded bg-red-100 px-1">/api/health</code> reports
+          <p className="font-semibold text-bad">Could not read from Meta</p>
+          <p className="mt-1 text-ink-100">{error.message}</p>
+          <p className="mt-2 text-xs text-ink-300">
+            Check <code className="rounded bg-bad/15 px-1">META_ACCESS_TOKEN</code> and{' '}
+            <code className="rounded bg-bad/15 px-1">META_BUSINESS_ID</code> in Dashboard → Secrets,
+            then Refresh. <code className="rounded bg-bad/15 px-1">/api/health</code> reports
             whether both are set.
           </p>
         </div>

@@ -3,7 +3,38 @@
 @tailwind utilities;
 
 @layer base {
-  html { color-scheme: light; }
-  body { @apply bg-slate-50 text-slate-900 antialiased; }
-  .tnum { font-variant-numeric: tabular-nums; }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-ink-950 text-ink-50 antialiased;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Scrollbars that don't punch a light hole in a dark page */
+  ::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-ink-950;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded bg-ink-700;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-600;
+  }
+  ::selection {
+    background: rgba(255, 107, 0, 0.28);
+  }
+}
+
+@layer components {
+  /* The gradient hairline the deployer puts along the top of its cards. */
+  .gk-edge::before {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-px bg-gk-edge;
+  }
 }
