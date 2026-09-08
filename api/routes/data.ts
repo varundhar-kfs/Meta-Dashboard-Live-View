@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { platform } from '../platform-sdk';
 import {
   billedByAccount, cfg, fetchAdAccounts, fetchAllocations, fetchCreditLines, fetchInvoices,
+  rawAccountSample, rawInvoiceSample,
 } from '../lib/meta';
 
 /** Invoice window: this year to date is enough to show billed utilisation. */
@@ -149,8 +150,8 @@ data.get('/api/debug/shapes', async (c) => {
     const conf = cfg();
     const win = invoiceWindow();
     const [invRaw, accRaw] = await Promise.all([
-      rawInvoiceSample(conf, win.since, win.until).catch((e) => ({ error: String(e) })),
-      rawAccountSample(conf).catch((e) => ({ error: String(e) })),
+      rawInvoiceSample(conf, win.since, win.until).catch((e: unknown) => ({ error: String(e) })),
+      rawAccountSample(conf).catch((e: unknown) => ({ error: String(e) })),
     ]);
     return c.json({
       note:

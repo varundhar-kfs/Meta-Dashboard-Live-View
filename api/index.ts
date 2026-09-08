@@ -8,7 +8,7 @@ import data from './routes/data';
  * only reliable way to tell whether a redeploy actually replaced the API bundle
  * or just the frontend.
  */
-const API_BUILD = '0832366+invoice-currency';
+const API_BUILD = '581464e+debug-shapes';
 
 const app = new Hono();
 
