@@ -22,7 +22,7 @@ export default function App() {
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Meta Credit Tower</h1>
             <p className="mt-0.5 text-sm text-slate-500">
-              Live credit line, per-merchant allocation and ad-account spend, read straight from Meta
+              Live credit line, merchant allocations and ad-account spend, read straight from Meta
             </p>
           </div>
           <div className="flex items-center gap-3">

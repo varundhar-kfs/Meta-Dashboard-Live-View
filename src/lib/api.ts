@@ -55,22 +55,41 @@ export interface Overview {
   };
 }
 
-/** Indian money, chosen scale. Lakh/crore because that is how the book is discussed. */
-export function money(n: number | null | undefined, currency: string | null = 'INR'): string {
-  if (n == null || !Number.isFinite(n)) return '—';
-  const sym = currency === 'USD' ? '$' : currency === 'INR' || !currency ? '₹' : `${currency} `;
-  const a = Math.abs(n);
-  if (sym === '₹') {
-    if (a >= 1e7) return `${sym}${(n / 1e7).toFixed(2)} Cr`;
-    if (a >= 1e5) return `${sym}${(n / 1e5).toFixed(2)} L`;
-  } else if (a >= 1e6) return `${sym}${(n / 1e6).toFixed(2)}M`;
-  return `${sym}${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+/**
+ * Money, at the scale the reader thinks in. Rupees get lakh/crore and Indian digit
+ * grouping; everything else gets western grouping — a USD figure rendered as
+ * "$7,24,396" reads as a mistake even though the number is right.
+ */
+const SYMBOL: Record<string, string> = { INR: '₹', USD: '$', GBP: '£', EUR: '€', AED: 'AED ' };
+
+function parts(currency: string | null | undefined): { sym: string; locale: string } {
+  const code = (currency ?? 'INR').toUpperCase();
+  return {
+    sym: SYMBOL[code] ?? `${code} `,
+    locale: code === 'INR' ? 'en-IN' : 'en-US',
+  };
 }
 
-export const exact = (n: number | null | undefined, currency: string | null = 'INR'): string =>
-  n == null || !Number.isFinite(n)
-    ? '—'
-    : `${currency === 'USD' ? '$' : '₹'}${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+export function money(n: number | null | undefined, currency: string | null = 'INR'): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const { sym, locale } = parts(currency);
+  const a = Math.abs(n);
+  if (locale === 'en-IN') {
+    if (a >= 1e7) return `${sym}${(n / 1e7).toFixed(2)} Cr`;
+    if (a >= 1e5) return `${sym}${(n / 1e5).toFixed(2)} L`;
+  } else if (a >= 1e6) {
+    return `${sym}${(n / 1e6).toFixed(2)}M`;
+  } else if (a >= 1e3) {
+    return `${sym}${(n / 1e3).toFixed(1)}K`;
+  }
+  return `${sym}${n.toLocaleString(locale, { maximumFractionDigits: 0 })}`;
+}
+
+export const exact = (n: number | null | undefined, currency: string | null = 'INR'): string => {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const { sym, locale } = parts(currency);
+  return `${sym}${n.toLocaleString(locale, { maximumFractionDigits: 2 })}`;
+};
 
 export const pct = (n: number | null | undefined, dp = 0): string =>
   n == null || !Number.isFinite(n) ? '—' : `${(n * 100).toFixed(dp)}%`;
