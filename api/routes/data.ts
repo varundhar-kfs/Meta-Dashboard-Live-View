@@ -99,7 +99,7 @@ data.get('/api/overview', async (c) => {
       const blindIds = billedIds.filter((id) => !visibleIds.has(id));
       const blindSpend = billed.rows
         .filter((r) => !visibleIds.has(r.adAccountId.replace(/^act_/, '')))
-        .reduce((a, r) => a + r.billed, 0);
+        .reduce((a, r) => a + r.net, 0);
 
       return {
         asOf: new Date().toISOString(),
