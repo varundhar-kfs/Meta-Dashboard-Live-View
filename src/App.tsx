@@ -244,7 +244,7 @@ function Dashboard({ d }: { d: Overview }) {
         subtitle={
           d.coverage.invoices > 0
             ? `From ${d.coverage.invoices} Meta invoice(s) since ${d.billed.window.since}. ` +
-              `${money(d.billed.totalBilled, cy)} billed, ${money(d.billed.totalDue, cy)} still due. ` +
+              `${money(d.billed.totalBilled, d.billed.currency)} billed, ${money(d.billed.totalDue, d.billed.currency)} still due. ` +
               'This is billed-to-date, not live — it is the only per-account view available where ' +
               "credit sits in the merchant's own Business Manager."
             : 'No invoices returned. Needs business_management on an Admin system user.'
@@ -270,9 +270,9 @@ function Dashboard({ d }: { d: Overview }) {
                       </div>
                     </td>
                     <td className="tnum px-4 py-2 text-right text-ink-300">{b.invoices}</td>
-                    <td className="tnum px-4 py-2 text-right font-medium">{exact(b.billed, b.currency ?? cy)}</td>
+                    <td className="tnum px-4 py-2 text-right font-medium">{exact(b.billed, b.currency ?? d.billed.currency)}</td>
                     <td className={`tnum px-4 py-2 text-right ${b.due > 1 ? 'text-warn' : 'text-ink-400'}`}>
-                      {exact(b.due, b.currency ?? cy)}
+                      {exact(b.due, b.currency ?? d.billed.currency)}
                     </td>
                     <td className="px-4 py-2 text-xs text-ink-300">{b.lastInvoiceDate ?? '—'}</td>
                   </tr>

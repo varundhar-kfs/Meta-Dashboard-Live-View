@@ -406,3 +406,24 @@ export function billedByAccount(invoices: Invoice[]): { rows: BilledAccount[]; a
     apportioned,
   };
 }
+
+
+/** Verbatim first invoice, for settling field-shape questions with evidence. */
+export async function rawInvoiceSample(c: Cfg, since: string, until: string): Promise<unknown> {
+  const page = await get<{ data?: unknown[] }>(c, `/${c.businessId}/business_invoices`, {
+    fields: INVOICE_FIELDS,
+    start_date: since,
+    end_date: until,
+    limit: '3',
+  });
+  return (page.data ?? []).slice(0, 3);
+}
+
+/** Verbatim first ad account, same purpose. */
+export async function rawAccountSample(c: Cfg): Promise<unknown> {
+  const page = await get<{ data?: unknown[] }>(c, `/${c.businessId}/client_ad_accounts`, {
+    fields: ACCOUNT_FIELDS,
+    limit: '2',
+  });
+  return (page.data ?? []).slice(0, 2);
+}

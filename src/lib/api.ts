@@ -42,6 +42,7 @@ export interface Overview {
   accounts: AdAccount[];
   billed: {
     window: { since: string; until: string };
+    currency: string | null;
     invoices: number;
     totalBilled: number;
     totalDue: number;

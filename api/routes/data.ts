@@ -106,6 +106,9 @@ data.get('/api/overview', async (c) => {
         accounts,
         billed: {
           window: win,
+          // The facility is USD; the invoices are not. Never borrow one's currency
+          // for the other's totals.
+          currency: invoices.find((i) => i.currency)?.currency ?? null,
           invoices: invoices.length,
           totalBilled: invoices.reduce((a, i) => a + (i.amount ?? 0), 0),
           totalDue: invoices.reduce((a, i) => a + (i.amountDue ?? 0), 0),
@@ -131,6 +134,33 @@ data.get('/api/overview', async (c) => {
     return c.json(payload);
   } catch (e) {
     console.error('overview failed:', e instanceof Error ? e.message : String(e));
+    return c.json(fail(e), 502);
+  }
+});
+
+/**
+ * Raw payload samples. Meta documents some money fields as minor units and others
+ * as CurrencyAmount objects, and the two are indistinguishable once parsed — so
+ * when a figure looks wrong, look at what actually came back rather than guessing
+ * at a divisor.
+ */
+data.get('/api/debug/shapes', async (c) => {
+  try {
+    const conf = cfg();
+    const win = invoiceWindow();
+    const [invRaw, accRaw] = await Promise.all([
+      rawInvoiceSample(conf, win.since, win.until).catch((e) => ({ error: String(e) })),
+      rawAccountSample(conf).catch((e) => ({ error: String(e) })),
+    ]);
+    return c.json({
+      note:
+        'Verbatim from Meta, untouched. Compare each money field against Business ' +
+        'Manager to establish whether it is major units, minor units, or an object.',
+      invoiceWindow: win,
+      invoiceSample: invRaw,
+      adAccountSample: accRaw,
+    });
+  } catch (e) {
     return c.json(fail(e), 502);
   }
 });
